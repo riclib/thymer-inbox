@@ -229,6 +229,24 @@ tasks:
       - npm install
 
   # ==========================================================================
+  # Claude Code Skill
+  # ==========================================================================
+
+  skill:install:
+    desc: Install thymer-capture skill for Claude Code
+    cmds:
+      - mkdir -p ~/.claude/skills/thymer-capture
+      - cp skill/SKILL.md ~/.claude/skills/thymer-capture/SKILL.md
+      - echo "Installed to ~/.claude/skills/thymer-capture/"
+      - echo "Claude will now respond to 'note this', 'log this', 'capture this', etc."
+
+  skill:uninstall:
+    desc: Remove thymer-capture skill
+    cmds:
+      - rm -rf ~/.claude/skills/thymer-capture
+      - echo "Skill removed"
+
+  # ==========================================================================
   # Git Helpers
   # ==========================================================================
 

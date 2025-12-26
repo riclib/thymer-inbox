@@ -266,6 +266,33 @@ task service:stop
 task service:logs
 ```
 
+## Claude Code Integration
+
+A skill for [Claude Code](https://claude.com/claude-code) that lets you capture notes using natural language.
+
+### Install
+
+```bash
+task skill:install
+```
+
+### Usage
+
+Just tell Claude what to capture:
+
+- "note this conversation"
+- "log that I finished the code review"
+- "capture this as a meeting summary"
+- "inbox this discussion"
+
+Claude automatically picks the right `tm` pattern based on content.
+
+### Uninstall
+
+```bash
+task skill:uninstall
+```
+
 ## Project Structure
 
 ```
@@ -279,6 +306,8 @@ thymer-inbox/
 │   ├── plugin.json       # App Plugin config
 │   ├── github-collection.json    # Collection Plugin (GitHub)
 │   └── readwise-collection.json  # Collection Plugin (Readwise)
+├── skill/
+│   └── SKILL.md          # Claude Code skill for natural language capture
 ├── worker/               # Cloudflare Worker (needs update)
 └── CLAUDE.md             # Instructions for Claude Code
 ```
