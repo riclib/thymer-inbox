@@ -7,8 +7,9 @@
  * Configure THYMER_QUEUE_URL and THYMER_QUEUE_TOKEN in plugin settings.
  */
 
-// Default URL for development, override queueUrl in plugin config
-const DEFAULT_QUEUE_URL = 'https://thymer.lifelog.my';
+// Defaults for local development (matches `tm serve` defaults)
+const DEFAULT_QUEUE_URL = 'http://localhost:19501';
+const DEFAULT_QUEUE_TOKEN = 'local-dev-token';
 
 class Plugin extends AppPlugin {
 
@@ -20,7 +21,7 @@ class Plugin extends AppPlugin {
         // Get config from plugin settings (set in plugin.json or via API)
         const config = this.getExistingCodeAndConfig?.()?.json || {};
         this.queueUrl = config.queueUrl || DEFAULT_QUEUE_URL;
-        this.queueToken = config.queueToken || '';
+        this.queueToken = config.queueToken || DEFAULT_QUEUE_TOKEN;
 
         // Status bar - click to toggle bridge
         this.statusBarItem = this.ui.addStatusBarItem({
@@ -154,25 +155,53 @@ class Plugin extends AppPlugin {
     async dumpLineItems() {
         const panel = this.ui.getActivePanel();
         const record = panel?.getActiveRecord();
+        const collection = panel?.getActiveCollection();
+
+        console.log('=== CONTEXT ===');
+        console.log('panel:', panel?.getId());
+        console.log('collection:', collection?.getName(), '| guid:', collection?.getGuid());
+        console.log('record:', record?.getName(), '| guid:', record?.guid);
+
+        // Dump all collections
+        console.log('\n=== ALL COLLECTIONS ===');
+        const collections = await this.data.getAllCollections();
+        for (const c of collections) {
+            console.log(`- ${c.getName()} | guid: ${c.getGuid()}`);
+        }
+
         if (!record) {
-            console.log('No active record');
+            console.log('\nNo active record - open a note to see line items');
             return;
         }
 
+        // Dump record properties
+        console.log('\n=== RECORD PROPERTIES ===');
+        const props = record.getAllProperties();
+        for (const prop of props) {
+            console.log(`- ${prop.name}: text=${prop.text()} | number=${prop.number()} | date=${prop.date()}`);
+        }
+
+        // Dump line items (first 10)
         const lineItems = await record.getLineItems();
-        console.log('=== ALL LINE ITEMS ===');
-        for (const item of lineItems) {
-            console.log('---');
-            console.log('type:', item.type);
-            console.log('_item:', JSON.stringify(item._item, null, 2));
+        console.log(`\n=== LINE ITEMS (${lineItems.length} total, showing first 10) ===`);
+        for (const item of lineItems.slice(0, 10)) {
+            const segmentParts = item.segments?.map(s => {
+                if (s.type === 'text') return s.text;
+                if (s.type === 'ref') return `[ref:${s.text?.guid || '?'}]`;
+                if (typeof s.text === 'object') return `[${s.type}:${JSON.stringify(s.text)}]`;
+                return `[${s.type}:${s.text || ''}]`;
+            }) || [];
+            const text = segmentParts.join('');
+            console.log(`- type: ${item.type} | "${text.slice(0, 50)}..." | guid: ${item.guid} | parent: ${item.parent_guid}`);
+            if (item._item?.mp) console.log('  mp:', JSON.stringify(item._item.mp));
         }
         console.log('=== END ===');
 
         this.ui.addToaster({
             title: '🪄 Dump',
-            message: `Logged ${lineItems.length} items to console`,
+            message: `Logged ${collections.length} collections, ${props.length} props, ${lineItems.length} items`,
             dismissible: true,
-            autoDestroyTime: 2000,
+            autoDestroyTime: 3000,
         });
     }
 
@@ -180,31 +209,68 @@ class Plugin extends AppPlugin {
         const content = data.content || data.markdown || '';
         const action = data.action || 'append';
 
+        // Find today's Journal entry
+        const targetRecord = await this.getTodayJournalRecord();
+
+        if (!targetRecord) {
+            this.ui.addToaster({
+                title: '🪄 Error',
+                message: 'Could not find today\'s Journal entry',
+                dismissible: true,
+                autoDestroyTime: 3000,
+            });
+            return;
+        }
+
         switch (action) {
             case 'lifelog':
-                // Add timestamped entry to current record
+                // Add timestamped entry
                 const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                await this.insertMarkdown(`**${time}** ${content}`);
+                await this.insertMarkdown(`**${time}** ${content}`, targetRecord);
                 break;
 
             case 'create':
                 // TODO: Create new record in collection
-                // For now, just insert as markdown
-                await this.insertMarkdown(content);
+                await this.insertMarkdown(content, targetRecord);
                 break;
 
             case 'append':
             default:
-                await this.insertMarkdown(content);
+                await this.insertMarkdown(content, targetRecord);
                 break;
         }
 
         this.ui.addToaster({
             title: '🪄 Received',
-            message: `${action}: ${content.slice(0, 50)}${content.length > 50 ? '...' : ''}`,
+            message: `Added to ${targetRecord.getName()}: ${content.slice(0, 40)}${content.length > 40 ? '...' : ''}`,
             dismissible: true,
             autoDestroyTime: 2000,
         });
+    }
+
+    async getTodayJournalRecord() {
+        try {
+            const collections = await this.data.getAllCollections();
+            const journal = collections.find(c => c.getName() === 'Journal');
+            if (!journal) {
+                console.error('Journal collection not found');
+                return null;
+            }
+
+            const records = await journal.getAllRecords();
+            const today = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // "20251226"
+            const todayRecord = records.find(r => r.guid.endsWith(today));
+
+            if (!todayRecord) {
+                console.error('Today\'s Journal entry not found, looking for:', today);
+                return null;
+            }
+
+            return todayRecord;
+        } catch (e) {
+            console.error('Error finding Journal:', e);
+            return null;
+        }
     }
 
     setConnected(connected) {
@@ -223,14 +289,13 @@ class Plugin extends AppPlugin {
         }
     }
 
-    async insertMarkdown(markdown) {
-        const panel = this.ui.getActivePanel();
-        const record = panel?.getActiveRecord();
+    async insertMarkdown(markdown, targetRecord = null) {
+        const record = targetRecord || this.ui.getActivePanel()?.getActiveRecord();
 
         if (!record) {
             this.ui.addToaster({
                 title: '🪄 Thymer Paste',
-                message: 'No active record to insert into. Please open a note first.',
+                message: 'No target record. Please open a note first.',
                 dismissible: true,
                 autoDestroyTime: 5000,
             });
@@ -239,11 +304,71 @@ class Plugin extends AppPlugin {
 
         // Parse markdown into blocks (handles multi-line code blocks)
         const blocks = this.parseMarkdown(markdown);
-        let lastItem = null;
 
-        for (const block of blocks) {
+        // Find the last top-level line item to append after
+        // Top-level items have parent_guid = record.guid
+        const existingItems = await record.getLineItems();
+        const topLevelItems = existingItems.filter(item => item.parent_guid === record.guid);
+        let lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
+        // Hierarchical nesting based on heading levels
+        // Track parent stack: index 0 = top level, index N = heading level N
+        // Content goes under the most recent heading
+        let parentStack = [{ item: null, afterItem: lastItem, level: 0 }]; // level 0 = root (record)
+        let isFirstBlock = true;
+
+        for (let i = 0; i < blocks.length; i++) {
+            const block = blocks[i];
+            const isHeading = block.type === 'heading';
+            const headingLevel = isHeading ? (block.mp?.hsize || 1) : 0;
+
             try {
-                const newItem = await record.createLineItem(null, lastItem, block.type);
+                // Add blank line before headings (except first block)
+                if (isHeading && !isFirstBlock) {
+                    const currentParent = parentStack[parentStack.length - 1];
+                    const brItem = await record.createLineItem(
+                        currentParent.level === 0 ? null : currentParent.item,
+                        currentParent.afterItem,
+                        'br'
+                    );
+                    if (brItem) {
+                        currentParent.afterItem = brItem;
+                    }
+                }
+
+                let newItem;
+                if (isHeading) {
+                    // Pop stack back to parent level (find where this heading belongs)
+                    // A heading goes under the nearest heading with a smaller level
+                    while (parentStack.length > 1 && parentStack[parentStack.length - 1].level >= headingLevel) {
+                        parentStack.pop();
+                    }
+
+                    const parent = parentStack[parentStack.length - 1];
+                    newItem = await record.createLineItem(
+                        parent.level === 0 ? null : parent.item,
+                        parent.afterItem,
+                        block.type
+                    );
+
+                    if (newItem) {
+                        // Update the parent's afterItem for siblings
+                        parent.afterItem = newItem;
+                        // Push this heading as new parent for deeper content
+                        parentStack.push({ item: newItem, afterItem: null, level: headingLevel });
+                    }
+                } else {
+                    // Non-heading content: goes under the most recent heading
+                    const parent = parentStack[parentStack.length - 1];
+                    newItem = await record.createLineItem(
+                        parent.level === 0 ? null : parent.item,
+                        parent.afterItem,
+                        block.type
+                    );
+
+                    if (newItem) {
+                        parent.afterItem = newItem;
+                    }
+                }
 
                 if (newItem) {
                     // Set mp BEFORE setSegments - maybe setSegments syncs everything
@@ -256,13 +381,13 @@ class Plugin extends AppPlugin {
                         // Call setSegments on block to sync mp
                         newItem.setSegments([]);
 
-                        let lastChild = null;
+                        let codeLastChild = null;
                         for (const line of block.codeLines) {
-                            const childItem = await record.createLineItem(newItem, lastChild, 'text');
+                            const childItem = await record.createLineItem(newItem, codeLastChild, 'text');
                             if (childItem) {
                                 // Use setSegments API
                                 childItem.setSegments([{ type: 'text', text: line }]);
-                                lastChild = childItem;
+                                codeLastChild = childItem;
                             }
                         }
                     } else if (block.segments && block.segments.length > 0) {
@@ -273,14 +398,14 @@ class Plugin extends AppPlugin {
                         newItem.setSegments([]);
                     }
 
-                    lastItem = newItem;
+                    isFirstBlock = false;
                 }
             } catch (e) {
                 console.error('Failed to create line item:', e);
             }
         }
 
-        if (lastItem) {
+        if (blocks.length > 0) {
             this.ui.addToaster({
                 title: '🪄 Content inserted',
                 message: `Added to "${record.getName()}"`,
