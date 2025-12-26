@@ -131,6 +131,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Add timestamp from CLI (includes timezone)
+	req.CreatedAt = time.Now().Format(time.RFC3339)
+
 	// Send to queue
 	if err := sendToQueue(config, req); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

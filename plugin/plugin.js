@@ -14,7 +14,6 @@ const DEFAULT_QUEUE_TOKEN = 'local-dev-token';
 class Plugin extends AppPlugin {
 
     onLoad() {
-        this.bridgeEnabled = false;
         this.connected = false;
         this.eventSource = null;
 
@@ -23,11 +22,11 @@ class Plugin extends AppPlugin {
         this.queueUrl = config.queueUrl || DEFAULT_QUEUE_URL;
         this.queueToken = config.queueToken || DEFAULT_QUEUE_TOKEN;
 
-        // Status bar - click to toggle bridge
+        // Status bar - click to retry connection
         this.statusBarItem = this.ui.addStatusBarItem({
-            htmlLabel: '<span style="font-size: 14px;">🪄</span> paste',
-            tooltip: 'Thymer Paste - Click to enable queue polling',
-            onClick: () => this.toggleBridge()
+            htmlLabel: '<span style="font-size: 14px;">🪄</span> <span style="opacity: 0.5;">...</span>',
+            tooltip: 'Thymer Paste - Connecting...',
+            onClick: () => this.retryConnection()
         });
 
         // Command palette: Paste Markdown
@@ -43,6 +42,9 @@ class Plugin extends AppPlugin {
             icon: 'bug',
             onSelected: () => this.dumpLineItems()
         });
+
+        // Auto-connect on load
+        this.startStream();
     }
 
     onUnload() {
@@ -58,32 +60,11 @@ class Plugin extends AppPlugin {
         this.stopStream();
     }
 
-    toggleBridge() {
-        if (this.bridgeEnabled) {
-            this.stopStream();
-            this.bridgeEnabled = false;
-            this.connected = false;
-            this.statusBarItem.setHtmlLabel('<span style="font-size: 14px;">🪄</span> skill');
-            this.statusBarItem.setTooltip('Thymer Paste - Click to enable CLI bridge');
-            this.ui.addToaster({
-                title: '🪄 Thymer Paste',
-                message: 'Bridge disabled',
-                dismissible: true,
-                autoDestroyTime: 1500,
-            });
-        } else {
-            this.bridgeEnabled = true;
-            this.failureCount = 0;
-            this.statusBarItem.setHtmlLabel('<span style="font-size: 14px;">🪄</span> <span style="opacity: 0.5;">connecting...</span>');
-            this.statusBarItem.setTooltip('Thymer Paste - Connecting...');
-            this.startStream();
-            this.ui.addToaster({
-                title: '🪄 Thymer Paste',
-                message: 'Bridge enabled - listening for CLI input',
-                dismissible: true,
-                autoDestroyTime: 1500,
-            });
-        }
+    retryConnection() {
+        this.stopStream();
+        this.statusBarItem.setHtmlLabel('<span style="font-size: 14px;">🪄</span> <span style="opacity: 0.5;">...</span>');
+        this.statusBarItem.setTooltip('Thymer Paste - Connecting...');
+        this.startStream();
     }
 
     startStream() {
@@ -208,11 +189,13 @@ class Plugin extends AppPlugin {
     async handleQueueItem(data) {
         const content = data.content || data.markdown || '';
         const action = data.action || 'append';
+        const cliTimestamp = data.createdAt ? new Date(data.createdAt) : new Date();
+        const timeStr = cliTimestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 
         // Find today's Journal entry
-        const targetRecord = await this.getTodayJournalRecord();
+        const journalRecord = await this.getTodayJournalRecord();
 
-        if (!targetRecord) {
+        if (!journalRecord) {
             this.ui.addToaster({
                 title: '🪄 Error',
                 message: 'Could not find today\'s Journal entry',
@@ -222,30 +205,176 @@ class Plugin extends AppPlugin {
             return;
         }
 
-        switch (action) {
-            case 'lifelog':
-                // Add timestamped entry
-                const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                await this.insertMarkdown(`**${time}** ${content}`, targetRecord);
-                break;
-
-            case 'create':
-                // TODO: Create new record in collection
-                await this.insertMarkdown(content, targetRecord);
-                break;
-
-            case 'append':
-            default:
-                await this.insertMarkdown(content, targetRecord);
-                break;
+        // Handle lifelog action specially
+        if (action === 'lifelog') {
+            await this.insertMarkdown(`**${timeStr}** ${content}`, journalRecord);
+            this.ui.addToaster({
+                title: '🪄 Lifelog',
+                message: `${timeStr} ${content.slice(0, 40)}${content.length > 40 ? '...' : ''}`,
+                dismissible: true,
+                autoDestroyTime: 2000,
+            });
+            return;
         }
 
-        this.ui.addToaster({
-            title: '🪄 Received',
-            message: `Added to ${targetRecord.getName()}: ${content.slice(0, 40)}${content.length > 40 ? '...' : ''}`,
-            dismissible: true,
-            autoDestroyTime: 2000,
-        });
+        // Detect content type
+        const lines = content.split('\n').filter(l => l.trim() !== '');
+        const isOneLiner = lines.length === 1;
+        const isShort = lines.length >= 2 && lines.length <= 5 && !content.trim().startsWith('# ');
+        const isMarkdownDoc = content.trim().startsWith('# ');
+
+        if (isOneLiner) {
+            // One-liner: simple append with timestamp
+            await this.appendOneLiner(journalRecord, timeStr, content.trim());
+            this.ui.addToaster({
+                title: '🪄 Quick note',
+                message: content.slice(0, 50),
+                dismissible: true,
+                autoDestroyTime: 2000,
+            });
+        } else if (isShort) {
+            // Short content (2-5 lines): first line as parent, rest as children
+            await this.appendShortNote(journalRecord, timeStr, lines);
+            this.ui.addToaster({
+                title: '🪄 Note added',
+                message: `${lines.length} lines to Journal`,
+                dismissible: true,
+                autoDestroyTime: 2000,
+            });
+        } else if (isMarkdownDoc) {
+            // Markdown document: create in Inbox, add ref to Journal
+            const result = await this.createInboxNote(content, cliTimestamp);
+            if (result) {
+                await this.addNoteRefToJournal(journalRecord, timeStr, result.title, result.guid);
+                this.ui.addToaster({
+                    title: '🪄 Note created',
+                    message: `"${result.title}" in Inbox`,
+                    dismissible: true,
+                    autoDestroyTime: 2000,
+                });
+            } else {
+                // Fallback: insert as markdown in Journal
+                await this.insertMarkdown(content, journalRecord);
+                this.ui.addToaster({
+                    title: '🪄 Added to Journal',
+                    message: 'Could not create Inbox note, added to Journal instead',
+                    dismissible: true,
+                    autoDestroyTime: 3000,
+                });
+            }
+        } else {
+            // Default (>5 lines, no heading): use hierarchy, add timestamp to first line
+            const firstLine = lines[0];
+            const restLines = content.split('\n').slice(1).join('\n');
+            const timestampedContent = `**${timeStr}** ${firstLine}\n${restLines}`;
+            await this.insertMarkdown(timestampedContent, journalRecord);
+            this.ui.addToaster({
+                title: '🪄 Content added',
+                message: `${lines.length} lines to Journal`,
+                dismissible: true,
+                autoDestroyTime: 2000,
+            });
+        }
+    }
+
+    async appendOneLiner(record, timeStr, text) {
+        // Simple one-liner: "15:21 Quick thought"
+        const existingItems = await record.getLineItems();
+        const topLevelItems = existingItems.filter(item => item.parent_guid === record.guid);
+        const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
+
+        const newItem = await record.createLineItem(null, lastItem, 'text');
+        if (newItem) {
+            newItem.setSegments([
+                { type: 'bold', text: timeStr },
+                { type: 'text', text: ' ' + text }
+            ]);
+        }
+    }
+
+    async appendShortNote(record, timeStr, lines) {
+        // Short note (2-5 lines): first line as parent with timestamp, rest as children
+        const existingItems = await record.getLineItems();
+        const topLevelItems = existingItems.filter(item => item.parent_guid === record.guid);
+        const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
+
+        // Create parent item with first line
+        const parentItem = await record.createLineItem(null, lastItem, 'text');
+        if (!parentItem) return;
+
+        parentItem.setSegments([
+            { type: 'bold', text: timeStr },
+            { type: 'text', text: ' ' + lines[0] }
+        ]);
+
+        // Parse remaining content with full markdown support, insert under parent
+        const restContent = lines.slice(1).join('\n');
+        if (restContent.trim()) {
+            await this.insertMarkdown(restContent, record, parentItem);
+        }
+    }
+
+    async createInboxNote(content, timestamp) {
+        try {
+            // Find Inbox collection (or fallback to Notes)
+            const collections = await this.data.getAllCollections();
+            let inbox = collections.find(c => c.getName() === 'Inbox');
+            if (!inbox) {
+                inbox = collections.find(c => c.getName() === 'Notes');
+            }
+            if (!inbox) {
+                console.error('Neither Inbox nor Notes collection found');
+                return null;
+            }
+
+            // Extract title from first heading
+            const titleMatch = content.match(/^#\s+(.+)$/m);
+            const title = titleMatch ? titleMatch[1].trim() : 'Untitled';
+
+            // Create the record
+            const newRecordGuid = inbox.createRecord(title);
+            if (!newRecordGuid) {
+                console.error('Failed to create record in Inbox');
+                return null;
+            }
+
+            // Get the record from collection (might need a moment to sync)
+            await new Promise(resolve => setTimeout(resolve, 100)); // Brief delay for sync
+            const records = await inbox.getAllRecords();
+            const newRecord = records.find(r => r.guid === newRecordGuid);
+            if (!newRecord) {
+                console.error('Could not get newly created record:', newRecordGuid);
+                // Still return success - record was created, just couldn't add body
+                return { guid: newRecordGuid, title };
+            }
+
+            // Remove the first heading line from content (it's the title now)
+            const bodyContent = content.replace(/^#\s+.+\n?/, '').trim();
+            if (bodyContent) {
+                await this.insertMarkdown(bodyContent, newRecord);
+            }
+
+            return { guid: newRecordGuid, title };
+        } catch (e) {
+            console.error('Error creating Inbox note:', e);
+            return null;
+        }
+    }
+
+    async addNoteRefToJournal(journalRecord, timeStr, noteTitle, noteGuid) {
+        // Add: "15:21 added [[Note Title]]"
+        const existingItems = await journalRecord.getLineItems();
+        const topLevelItems = existingItems.filter(item => item.parent_guid === journalRecord.guid);
+        const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
+
+        const newItem = await journalRecord.createLineItem(null, lastItem, 'text');
+        if (newItem) {
+            newItem.setSegments([
+                { type: 'bold', text: timeStr },
+                { type: 'text', text: ' added ' },
+                { type: 'ref', text: { guid: noteGuid } }
+            ]);
+        }
     }
 
     async getTodayJournalRecord() {
@@ -274,22 +403,20 @@ class Plugin extends AppPlugin {
     }
 
     setConnected(connected) {
-        if (!this.bridgeEnabled) return;
-
         if (this.connected !== connected) {
             this.connected = connected;
 
             if (connected) {
-                this.statusBarItem.setHtmlLabel('<span style="font-size: 14px;">🪄</span> <span style="color: #4ade80;">●</span> skill');
-                this.statusBarItem.setTooltip('Thymer Paste - Connected (click to disable)');
+                this.statusBarItem.setHtmlLabel('<span style="font-size: 14px;">🪄</span> <span style="color: #4ade80;">●</span>');
+                this.statusBarItem.setTooltip('Thymer Paste - Connected');
             } else {
-                this.statusBarItem.setHtmlLabel('<span style="font-size: 14px;">🪄</span> <span style="color: #f87171;">●</span> skill');
-                this.statusBarItem.setTooltip('Thymer Paste - Server not found (click to disable)');
+                this.statusBarItem.setHtmlLabel('<span style="font-size: 14px;">🪄</span> <span style="color: #f87171;">●</span>');
+                this.statusBarItem.setTooltip('Thymer Paste - Disconnected (click to retry)');
             }
         }
     }
 
-    async insertMarkdown(markdown, targetRecord = null) {
+    async insertMarkdown(markdown, targetRecord = null, parentItem = null) {
         const record = targetRecord || this.ui.getActivePanel()?.getActiveRecord();
 
         if (!record) {
@@ -305,15 +432,17 @@ class Plugin extends AppPlugin {
         // Parse markdown into blocks (handles multi-line code blocks)
         const blocks = this.parseMarkdown(markdown);
 
-        // Find the last top-level line item to append after
-        // Top-level items have parent_guid = record.guid
+        // Find the last item to append after
+        // If parentItem provided, we're nesting under it; otherwise at record top level
         const existingItems = await record.getLineItems();
-        const topLevelItems = existingItems.filter(item => item.parent_guid === record.guid);
-        let lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
+        const containerGuid = parentItem ? parentItem.guid : record.guid;
+        const siblingItems = existingItems.filter(item => item.parent_guid === containerGuid);
+        let lastItem = siblingItems.length > 0 ? siblingItems[siblingItems.length - 1] : null;
+
         // Hierarchical nesting based on heading levels
-        // Track parent stack: index 0 = top level, index N = heading level N
+        // Track parent stack: index 0 = root (parentItem or record), index N = heading level N
         // Content goes under the most recent heading
-        let parentStack = [{ item: null, afterItem: lastItem, level: 0 }]; // level 0 = root (record)
+        let parentStack = [{ item: parentItem, afterItem: lastItem, level: 0 }]; // level 0 = root
         let isFirstBlock = true;
 
         for (let i = 0; i < blocks.length; i++) {
@@ -335,7 +464,7 @@ class Plugin extends AppPlugin {
                     // Add blank line before headings (except first block)
                     if (!isFirstBlock) {
                         const blankItem = await record.createLineItem(
-                            parent.level === 0 ? null : parent.item,
+                            parent.item,  // null for record root, or parentItem
                             parent.afterItem,
                             'text'
                         );
@@ -345,7 +474,7 @@ class Plugin extends AppPlugin {
                         }
                     }
                     newItem = await record.createLineItem(
-                        parent.level === 0 ? null : parent.item,
+                        parent.item,  // null for record root, or parentItem
                         parent.afterItem,
                         block.type
                     );
@@ -360,7 +489,7 @@ class Plugin extends AppPlugin {
                     // Non-heading content: goes under the most recent heading
                     const parent = parentStack[parentStack.length - 1];
                     newItem = await record.createLineItem(
-                        parent.level === 0 ? null : parent.item,
+                        parent.item,  // null for record root, or parentItem
                         parent.afterItem,
                         block.type
                     );
