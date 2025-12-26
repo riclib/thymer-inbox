@@ -149,15 +149,12 @@ The plugin automatically routes content based on its structure:
 
 ## Markdown Support
 
-- Headings, bold, italic, inline code
+- Headings (H1-H6 with proper sizing)
+- Bold, italic, inline code
 - Bullet and numbered lists
 - Task lists (`- [ ]` and `- [x]`)
 - Blockquotes
-- Fenced code blocks with language
-
-**Pending Thymer API:**
-- Headings 2-6 (currently all render as H1)
-- Code blocks with syntax highlighting (currently imported as generic blocks)
+- Fenced code blocks with syntax highlighting
 
 ## GitHub Sync
 
