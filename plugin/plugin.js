@@ -322,19 +322,6 @@ class Plugin extends AppPlugin {
             const headingLevel = isHeading ? (block.mp?.hsize || 1) : 0;
 
             try {
-                // Add blank line before headings (except first block)
-                if (isHeading && !isFirstBlock) {
-                    const currentParent = parentStack[parentStack.length - 1];
-                    const brItem = await record.createLineItem(
-                        currentParent.level === 0 ? null : currentParent.item,
-                        currentParent.afterItem,
-                        'br'
-                    );
-                    if (brItem) {
-                        currentParent.afterItem = brItem;
-                    }
-                }
-
                 let newItem;
                 if (isHeading) {
                     // Pop stack back to parent level (find where this heading belongs)
@@ -344,6 +331,19 @@ class Plugin extends AppPlugin {
                     }
 
                     const parent = parentStack[parentStack.length - 1];
+
+                    // Add blank line before headings (except first block)
+                    if (!isFirstBlock) {
+                        const blankItem = await record.createLineItem(
+                            parent.level === 0 ? null : parent.item,
+                            parent.afterItem,
+                            'text'
+                        );
+                        if (blankItem) {
+                            blankItem.setSegments([]);  // Empty text = blank line
+                            parent.afterItem = blankItem;
+                        }
+                    }
                     newItem = await record.createLineItem(
                         parent.level === 0 ? null : parent.item,
                         parent.afterItem,
