@@ -44,6 +44,7 @@ func (i GitHubIssue) ToMarkdown() string {
 	// YAML frontmatter
 	b.WriteString("---\n")
 	b.WriteString("collection: GitHub\n")
+	b.WriteString(fmt.Sprintf("title: %s\n", i.Title))
 	b.WriteString(fmt.Sprintf("repo: %s\n", i.Repo))
 	b.WriteString(fmt.Sprintf("number: %d\n", i.Number))
 	b.WriteString(fmt.Sprintf("type: %s\n", i.Type))

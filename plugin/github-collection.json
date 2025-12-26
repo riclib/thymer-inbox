@@ -3,7 +3,14 @@
     "name": "GitHub",
     "icon": "ti-brand-github",
     "home": false,
-    "page_field_ids": [],
+    "page_field_ids": [
+        "title",
+        "repo",
+        "number",
+        "type",
+        "state",
+        "url"
+    ],
     "item_name": "Issue",
     "description": "GitHub Issues & PRs",
     "show_sidebar_items": true,
@@ -30,7 +37,7 @@
         {
             "icon": "ti-hash",
             "id": "number",
-            "label": "#",
+            "label": "Number",
             "many": false,
             "read_only": true,
             "active": true,
@@ -45,8 +52,18 @@
             "active": true,
             "type": "choice",
             "choices": [
-                {"id": "issue", "label": "Issue", "color": "2", "active": true},
-                {"id": "pull_request", "label": "PR", "color": "4", "active": true}
+                {
+                    "id": "issue",
+                    "label": "Issue",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "pull_request",
+                    "label": "PR",
+                    "color": "4",
+                    "active": true
+                }
             ]
         },
         {
@@ -58,8 +75,18 @@
             "active": true,
             "type": "choice",
             "choices": [
-                {"id": "open", "label": "Open", "color": "2", "active": true},
-                {"id": "closed", "label": "Closed", "color": "5", "active": true}
+                {
+                    "id": "open",
+                    "label": "Open",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "closed",
+                    "label": "Closed",
+                    "color": "5",
+                    "active": true
+                }
             ]
         },
         {
@@ -97,6 +124,24 @@
             "read_only": true,
             "active": true,
             "type": "datetime"
+        },
+        {
+            "icon": "ti-photo",
+            "id": "banner",
+            "label": "Banner",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "banner"
+        },
+        {
+            "icon": "ti-align-left",
+            "id": "icon",
+            "label": "Icon",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "text"
         }
     ],
     "sidebar_record_sort_dir": "desc",

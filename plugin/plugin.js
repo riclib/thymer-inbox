@@ -394,6 +394,22 @@ class Plugin extends AppPlugin {
         }
     }
 
+    async addGitHubRefToJournal(journalRecord, timeStr, typeLabel, issueGuid) {
+        // Add: "15:21 new issue [[Issue Title]]"
+        const existingItems = await journalRecord.getLineItems();
+        const topLevelItems = existingItems.filter(item => item.parent_guid === journalRecord.guid);
+        const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
+
+        const newItem = await journalRecord.createLineItem(null, lastItem, 'text');
+        if (newItem) {
+            newItem.setSegments([
+                { type: 'bold', text: timeStr },
+                { type: 'text', text: ` new ${typeLabel} ` },
+                { type: 'ref', text: { guid: issueGuid } }
+            ]);
+        }
+    }
+
     parseFrontmatter(content) {
         // Parse YAML frontmatter from markdown
         const match = content.match(/^---\n([\s\S]*?)\n---\n\n?([\s\S]*)$/);
@@ -444,13 +460,26 @@ class Plugin extends AppPlugin {
                 return;
             }
 
-            // Get all records to find existing issue
+            // Get all records to find existing issue by repo+number
             const records = await ghCollection.getAllRecords();
+            let existingRecord = null;
 
-            // Look for existing record by matching title pattern: "repo#123"
-            const repoName = (meta.repo || '').split('/')[1] || meta.repo;
-            const issuePrefix = `${repoName}#${meta.number}`;
-            let existingRecord = records.find(r => r.getName().startsWith(issuePrefix));
+            for (const record of records) {
+                try {
+                    const repoProp = record.prop('repo');
+                    const numberProp = record.prop('number');
+                    if (repoProp && numberProp) {
+                        const recordRepo = repoProp.text();
+                        const recordNumber = numberProp.number();
+                        if (recordRepo === meta.repo && recordNumber === meta.number) {
+                            existingRecord = record;
+                            break;
+                        }
+                    }
+                } catch (e) {
+                    // Skip records without these properties
+                }
+            }
 
             if (existingRecord) {
                 // Update existing record properties
@@ -458,7 +487,7 @@ class Plugin extends AppPlugin {
                 console.log('📝 Updated:', existingRecord.getName());
                 this.ui.addToaster({
                     title: '📡 GitHub',
-                    message: `Updated: ${issuePrefix}`,
+                    message: `Updated: ${meta.title || meta.number}`,
                     dismissible: true,
                     autoDestroyTime: 2000,
                 });
@@ -482,11 +511,19 @@ class Plugin extends AppPlugin {
                     if (body.trim()) {
                         await this.insertMarkdown(body, newRecord);
                     }
+
+                    // Add reference to Journal
+                    const journalRecord = await this.getTodayJournalRecord();
+                    if (journalRecord) {
+                        const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                        const typeLabel = meta.type === 'pull_request' ? 'PR' : 'issue';
+                        await this.addGitHubRefToJournal(journalRecord, timeStr, typeLabel, newRecord.guid);
+                    }
                 }
 
                 this.ui.addToaster({
                     title: '📡 GitHub',
-                    message: `Created: ${issuePrefix}`,
+                    message: `Created: ${meta.title || meta.number}`,
                     dismissible: true,
                     autoDestroyTime: 2000,
                 });
