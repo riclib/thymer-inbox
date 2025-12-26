@@ -1,7 +1,7 @@
 {
     "ver": 1,
     "name": "GitHub",
-    "icon": "ti-brand-github",
+    "icon": "ti-ticket",
     "home": false,
     "page_field_ids": [
         "title",
@@ -152,5 +152,44 @@
         "sidebar": false
     },
     "custom": {},
-    "views": []
+    "views": [
+        {
+            "id": "V5ZY9J449D03R7S",
+            "shown": true,
+            "icon": "",
+            "label": "Projects",
+            "description": "",
+            "field_ids": [
+                "title",
+                "repo",
+                "number",
+                "state"
+            ],
+            "type": "board",
+            "read_only": false,
+            "group_by_field_id": "type",
+            "sort_dir": "desc",
+            "sort_field_id": null,
+            "opts": {}
+        },
+        {
+            "id": "V63QESX5NN24F3N",
+            "shown": true,
+            "icon": "",
+            "label": "Status",
+            "description": "",
+            "field_ids": [
+                "title",
+                "repo",
+                "number",
+                "type"
+            ],
+            "type": "board",
+            "read_only": false,
+            "group_by_field_id": "state",
+            "sort_dir": "desc",
+            "sort_field_id": null,
+            "opts": {}
+        }
+    ]
 }
