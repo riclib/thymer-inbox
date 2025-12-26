@@ -1,0 +1,187 @@
+{
+    "ver": 1,
+    "name": "Readwise",
+    "icon": "ti-highlight",
+    "home": false,
+    "page_field_ids": [
+        "title",
+        "author",
+        "category",
+        "source_url"
+    ],
+    "item_name": "Highlight",
+    "description": "Readwise Highlights",
+    "show_sidebar_items": true,
+    "show_cmdpal_items": true,
+    "fields": [
+        {
+            "icon": "ti-id",
+            "id": "external_id",
+            "label": "External ID",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-abc",
+            "id": "title",
+            "label": "Title",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-user",
+            "id": "author",
+            "label": "Author",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-tag",
+            "id": "category",
+            "label": "Category",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "article",
+                    "label": "Article",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "book",
+                    "label": "Book",
+                    "color": "4",
+                    "active": true
+                },
+                {
+                    "id": "podcast",
+                    "label": "Podcast",
+                    "color": "6",
+                    "active": true
+                },
+                {
+                    "id": "tweet",
+                    "label": "Tweet",
+                    "color": "3",
+                    "active": true
+                },
+                {
+                    "id": "video",
+                    "label": "Video",
+                    "color": "5",
+                    "active": true
+                }
+            ]
+        },
+        {
+            "icon": "ti-link",
+            "id": "source_url",
+            "label": "Source",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "url"
+        },
+        {
+            "icon": "ti-external-link",
+            "id": "url",
+            "label": "Readwise URL",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "url"
+        },
+        {
+            "icon": "ti-clock-edit",
+            "id": "updated_at",
+            "label": "Modified",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "datetime"
+        },
+        {
+            "icon": "ti-clock-plus",
+            "id": "created_at",
+            "label": "Created",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "datetime"
+        },
+        {
+            "icon": "ti-photo",
+            "id": "banner",
+            "label": "Banner",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "banner"
+        },
+        {
+            "icon": "ti-align-left",
+            "id": "icon",
+            "label": "Icon",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "text"
+        }
+    ],
+    "sidebar_record_sort_dir": "desc",
+    "sidebar_record_sort_field_id": "updated_at",
+    "managed": {
+        "fields": false,
+        "views": false,
+        "sidebar": false
+    },
+    "custom": {},
+    "views": [
+        {
+            "id": "VRWCAT001",
+            "shown": true,
+            "icon": "",
+            "label": "By Category",
+            "description": "",
+            "field_ids": [
+                "title",
+                "author",
+                "source_url"
+            ],
+            "type": "board",
+            "read_only": false,
+            "group_by_field_id": "category",
+            "sort_dir": "desc",
+            "sort_field_id": null,
+            "opts": {}
+        },
+        {
+            "id": "VRWALL001",
+            "shown": true,
+            "icon": "",
+            "label": "All",
+            "description": "",
+            "field_ids": [
+                "title",
+                "author",
+                "category",
+                "source_url"
+            ],
+            "type": "table",
+            "read_only": false,
+            "group_by_field_id": null,
+            "sort_dir": "desc",
+            "sort_field_id": "updated_at",
+            "opts": {}
+        }
+    ]
+}

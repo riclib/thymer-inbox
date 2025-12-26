@@ -34,10 +34,11 @@ const (
 )
 
 type Config struct {
-	URL         string
-	Token       string
-	GitHubToken string
-	GitHubRepos []string
+	URL           string
+	Token         string
+	GitHubToken   string
+	GitHubRepos   []string
+	ReadwiseToken string
 }
 
 type QueueItem struct {
@@ -60,10 +61,19 @@ func main() {
 			return
 		case "resync":
 			if len(args) > 1 {
-				resyncRepo(args[1])
+				switch args[1] {
+				case "readwise":
+					resyncReadwise()
+				default:
+					resyncRepo(args[1]) // GitHub repo
+				}
 			} else {
-				resyncRepo("") // Resync all
+				resyncRepo("")     // Resync all GitHub
+				resyncReadwise()   // Resync Readwise
 			}
+			return
+		case "readwise-sync":
+			triggerReadwiseSync()
 			return
 		case "--help", "-h", "help":
 			printUsage()
@@ -188,10 +198,11 @@ func sendToQueue(config Config, req QueueItem) error {
 // ============================================================================
 
 type Server struct {
-	queue    map[string]QueueItem
-	mu       sync.RWMutex
-	token    string
-	ghSyncer *GitHubSyncer
+	queue      map[string]QueueItem
+	mu         sync.RWMutex
+	token      string
+	ghSyncer   *GitHubSyncer
+	rwSyncer   *ReadwiseSyncer
 }
 
 func resyncRepo(repo string) {
@@ -250,6 +261,94 @@ func resyncRepo(repo string) {
 	fmt.Println("  Restart 'tm serve' to resync")
 }
 
+func resyncReadwise() {
+	home, _ := os.UserHomeDir()
+	dbPath := filepath.Join(home, ".config", "tm", "readwise.db")
+
+	// Check if file exists
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		fmt.Println("✓ No Readwise cache to clear")
+		return
+	}
+
+	db, err := bolt.Open(dbPath, 0600, &bolt.Options{Timeout: 1 * time.Second})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	var deleted int
+	err = db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("documents"))
+		if b == nil {
+			return nil
+		}
+
+		var keysToDelete [][]byte
+		b.ForEach(func(k, v []byte) error {
+			keysToDelete = append(keysToDelete, k)
+			return nil
+		})
+
+		for _, k := range keysToDelete {
+			if err := b.Delete(k); err != nil {
+				return err
+			}
+			deleted++
+		}
+
+		// Also clear sync metadata
+		if meta := tx.Bucket([]byte("sync_meta")); meta != nil {
+			meta.Delete([]byte("last_sync"))
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✓ Cleared %d Readwise documents from cache\n", deleted)
+	fmt.Println("  Restart 'tm serve' to resync")
+}
+
+func triggerReadwiseSync() {
+	config := loadConfig()
+
+	url := config.URL
+	if url == "" {
+		url = LocalServerURL
+	}
+	token := config.Token
+	if token == "" {
+		token = "local-dev-token"
+	}
+
+	req, err := http.NewRequest("POST", url+"/readwise-sync?token="+token, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v (is 'tm serve' running?)\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", string(body))
+		os.Exit(1)
+	}
+
+	fmt.Println("✓ Readwise sync triggered")
+}
+
 func runServer() {
 	config := loadConfig()
 
@@ -283,8 +382,25 @@ func runServer() {
 		}
 	}
 
+	// Start Readwise sync if configured
+	if config.ReadwiseToken != "" {
+		home, _ := os.UserHomeDir()
+		dataDir := filepath.Join(home, ".config", "tm")
+		os.MkdirAll(dataDir, 0755)
+
+		syncer, err := NewReadwiseSyncer(config.ReadwiseToken, dataDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  Readwise sync disabled: %v\n", err)
+		} else {
+			srv.rwSyncer = syncer
+			go srv.startReadwiseSync(1 * time.Hour)
+			fmt.Println("📚 Readwise sync enabled (hourly, POST /readwise-sync to trigger now)")
+		}
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.handleHealth)
+	mux.HandleFunc("/readwise-sync", srv.handleReadwiseSync)
 	mux.HandleFunc("/queue", srv.handleQueue)
 	mux.HandleFunc("/stream", srv.handleStream)
 	mux.HandleFunc("/pending", srv.handlePending)
@@ -320,6 +436,75 @@ func (s *Server) queueGitHubChanges(issues []GitHubIssue) {
 		}
 		s.queue[item.ID] = item
 		fmt.Printf("📥 Queued GitHub: %s #%d (%s)\n", issue.Repo, issue.Number, issue.State)
+	}
+}
+
+func (s *Server) startReadwiseSync(interval time.Duration) {
+	// Initial sync after short delay (let server start)
+	time.Sleep(5 * time.Second)
+	s.doReadwiseSync()
+
+	// Periodic sync
+	ticker := time.NewTicker(interval)
+	for range ticker.C {
+		s.doReadwiseSync()
+	}
+}
+
+func (s *Server) handleReadwiseSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !s.checkAuth(r) {
+		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	if s.rwSyncer == nil {
+		http.Error(w, `{"error":"Readwise sync not configured"}`, http.StatusBadRequest)
+		return
+	}
+
+	go s.doReadwiseSync()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "sync started"})
+}
+
+func (s *Server) doReadwiseSync() {
+	if s.rwSyncer == nil {
+		return
+	}
+
+	docs, err := s.rwSyncer.Sync()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  Readwise sync error: %v\n", err)
+		return
+	}
+
+	if len(docs) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, doc := range docs {
+		item := QueueItem{
+			ID:        fmt.Sprintf("rw-%d", time.Now().UnixNano()),
+			Action:    "append",
+			Title:     doc.Document.Title,
+			Content:   doc.ToMarkdown(),
+			CreatedAt: time.Now().Format(time.RFC3339),
+		}
+		s.queue[item.ID] = item
+		status := "updated"
+		if doc.IsNew {
+			status = "new"
+		}
+		fmt.Printf("📚 Queued Readwise: %s (%s, %d highlights)\n", doc.Document.Title, status, len(doc.Highlights))
 	}
 }
 
@@ -513,9 +698,10 @@ func (s *Server) popOldest() *QueueItem {
 
 func loadConfig() Config {
 	config := Config{
-		URL:         os.Getenv("THYMER_URL"),
-		Token:       os.Getenv("THYMER_TOKEN"),
-		GitHubToken: os.Getenv("GITHUB_TOKEN"),
+		URL:           os.Getenv("THYMER_URL"),
+		Token:         os.Getenv("THYMER_TOKEN"),
+		GitHubToken:   os.Getenv("GITHUB_TOKEN"),
+		ReadwiseToken: os.Getenv("READWISE_TOKEN"),
 	}
 
 	if repos := os.Getenv("GITHUB_REPOS"); repos != "" {
@@ -544,6 +730,9 @@ func loadConfig() Config {
 			if strings.HasPrefix(line, "github_repos=") && len(config.GitHubRepos) == 0 {
 				config.GitHubRepos = parseRepoList(strings.TrimPrefix(line, "github_repos="))
 			}
+			if strings.HasPrefix(line, "readwise_token=") && config.ReadwiseToken == "" {
+				config.ReadwiseToken = strings.TrimPrefix(line, "readwise_token=")
+			}
 		}
 	}
 
@@ -571,7 +760,8 @@ func printUsage() {
 	fmt.Println("  tm --collection 'Tasks' < todo.md   Push to specific collection")
 	fmt.Println("  tm create --title 'New Note'        Create new record")
 	fmt.Println("  tm serve                            Run local queue server")
-	fmt.Println("  tm resync [repo]                    Clear GitHub cache (resync on next serve)")
+	fmt.Println("  tm resync [repo|readwise]           Clear sync cache (resync on next serve)")
+	fmt.Println("  tm readwise-sync                    Trigger Readwise sync now")
 	fmt.Println()
 	fmt.Println("Actions:")
 	fmt.Println("  append (default)  Append to daily page")

@@ -388,6 +388,32 @@ class Plugin extends AppPlugin {
         }
     }
 
+    async clearAndReplaceContent(record, newContent) {
+        // Clear existing line items and replace with new content
+        try {
+            const existingItems = await record.getLineItems();
+
+            // Delete all existing line items
+            for (const item of existingItems) {
+                try {
+                    await item.delete();
+                } catch (e) {
+                    // Some items might not be deletable, continue
+                }
+            }
+
+            // Small delay for sync
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Insert new content
+            await this.insertMarkdown(newContent, record);
+        } catch (e) {
+            console.error('Error replacing content:', e);
+            // Fallback: just append
+            await this.insertMarkdown(newContent, record);
+        }
+    }
+
     parseFrontmatter(content) {
         // Parse YAML frontmatter from markdown
         const match = content.match(/^---\n([\s\S]*?)\n---\n\n?([\s\S]*)$/);
@@ -471,13 +497,18 @@ class Plugin extends AppPlugin {
             // Update existing - set properties
             await this.setPropertiesFromMeta(existingRecord, meta);
 
-            // Add to journal with verb (default: updated)
-            if (journalRecord) {
-                await this.addSyncRefToJournal(journalRecord, timeStr, verb || 'updated', existingRecord.guid);
+            // Update body content - clear existing and re-insert
+            if (body.trim()) {
+                await this.clearAndReplaceContent(existingRecord, body);
+            }
+
+            // Only add to journal if verb is specified (silent update otherwise)
+            if (journalRecord && verb) {
+                await this.addSyncRefToJournal(journalRecord, timeStr, verb, existingRecord.guid);
             }
 
             this.ui.addToaster({
-                title: `📦 ${this.capitalize(verb || 'updated')}`,
+                title: `📦 ${this.capitalize(verb || 'synced')}`,
                 message: title,
                 dismissible: true,
                 autoDestroyTime: 2000,
@@ -490,9 +521,9 @@ class Plugin extends AppPlugin {
                 return;
             }
 
-            // Add to journal with verb (default: added)
-            if (journalRecord) {
-                await this.addSyncRefToJournal(journalRecord, timeStr, verb || 'added', newGuid);
+            // Only add to journal if verb is specified
+            if (journalRecord && verb) {
+                await this.addSyncRefToJournal(journalRecord, timeStr, verb, newGuid);
             }
 
             // Wait for sync and get record to set properties
@@ -508,7 +539,7 @@ class Plugin extends AppPlugin {
             }
 
             this.ui.addToaster({
-                title: `📦 ${this.capitalize(verb || 'added')}`,
+                title: `📦 ${this.capitalize(verb || 'synced')}`,
                 message: title,
                 dismissible: true,
                 autoDestroyTime: 2000,
