@@ -43,6 +43,13 @@ class Plugin extends AppPlugin {
             onSelected: () => this.dumpLineItems()
         });
 
+        // Command palette: Sync Readwise
+        this.readwiseSyncCommand = this.ui.addCommandPaletteCommand({
+            label: 'Sync Readwise',
+            icon: 'books',
+            onSelected: () => this.triggerReadwiseSync()
+        });
+
         // Auto-connect on load
         this.startStream();
     }
@@ -56,6 +63,9 @@ class Plugin extends AppPlugin {
         }
         if (this.dumpCommand) {
             this.dumpCommand.remove();
+        }
+        if (this.readwiseSyncCommand) {
+            this.readwiseSyncCommand.remove();
         }
         this.stopStream();
     }
@@ -127,6 +137,40 @@ class Plugin extends AppPlugin {
             this.ui.addToaster({
                 title: '🪄 Paste Markdown',
                 message: `Failed to read clipboard: ${error.message}`,
+                dismissible: true,
+                autoDestroyTime: 3000,
+            });
+        }
+    }
+
+    async triggerReadwiseSync() {
+        try {
+            const response = await fetch(`${this.queueUrl}/readwise-sync`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.queueToken}`
+                }
+            });
+            if (response.ok) {
+                this.ui.addToaster({
+                    title: '📚 Readwise',
+                    message: 'Sync triggered',
+                    dismissible: true,
+                    autoDestroyTime: 2000,
+                });
+            } else {
+                const text = await response.text();
+                this.ui.addToaster({
+                    title: '📚 Readwise',
+                    message: `Sync failed: ${text}`,
+                    dismissible: true,
+                    autoDestroyTime: 3000,
+                });
+            }
+        } catch (error) {
+            this.ui.addToaster({
+                title: '📚 Readwise',
+                message: `Sync failed: ${error.message}`,
                 dismissible: true,
                 autoDestroyTime: 3000,
             });
