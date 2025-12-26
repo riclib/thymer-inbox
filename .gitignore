@@ -1,5 +1,5 @@
-# Binary
-tm
+# Binary (at root only)
+/tm
 
 # SDK (cloned from upstream, has its own .git)
 sdk/
