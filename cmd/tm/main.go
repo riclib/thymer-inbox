@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,6 +28,8 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 )
+
+var logger *slog.Logger
 
 const (
 	LocalServerPort = "19501"
@@ -350,12 +353,30 @@ func triggerReadwiseSync() {
 }
 
 func runServer() {
+	// Check for verbose flag
+	verbose := false
+	for _, arg := range os.Args[2:] {
+		if arg == "-v" || arg == "--verbose" {
+			verbose = true
+			break
+		}
+	}
+
+	// Initialize logger
+	logLevel := slog.LevelInfo
+	if verbose {
+		logLevel = slog.LevelDebug
+	}
+	logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: logLevel,
+	}))
+
 	config := loadConfig()
 
 	token := config.Token
 	if token == "" {
 		token = "local-dev-token"
-		fmt.Printf("⚠️  No THYMER_TOKEN set, using: %s\n", token)
+		logger.Warn("no THYMER_TOKEN set, using default", "token", token)
 	}
 
 	srv := &Server{
@@ -371,14 +392,14 @@ func runServer() {
 
 		syncer, err := NewGitHubSyncer(config.GitHubToken, config.GitHubRepos, dataDir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️  GitHub sync disabled: %v\n", err)
+			logger.Warn("GitHub sync disabled", "error", err)
 		} else {
 			srv.ghSyncer = syncer
 			ctx := context.Background()
 			syncer.StartPeriodicSync(ctx, 1*time.Minute, func(issues []GitHubIssue) {
 				srv.queueGitHubChanges(issues)
 			})
-			fmt.Printf("📡 GitHub sync enabled for: %s\n", strings.Join(config.GitHubRepos, ", "))
+			logger.Info("GitHub sync enabled", "repos", strings.Join(config.GitHubRepos, ", "))
 		}
 	}
 
@@ -390,11 +411,11 @@ func runServer() {
 
 		syncer, err := NewReadwiseSyncer(config.ReadwiseToken, dataDir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️  Readwise sync disabled: %v\n", err)
+			logger.Warn("Readwise sync disabled", "error", err)
 		} else {
 			srv.rwSyncer = syncer
 			go srv.startReadwiseSync(1 * time.Hour)
-			fmt.Println("📚 Readwise sync enabled (hourly, POST /readwise-sync to trigger now)")
+			logger.Info("Readwise sync enabled", "interval", "1h")
 		}
 	}
 
@@ -406,18 +427,10 @@ func runServer() {
 	mux.HandleFunc("/pending", srv.handlePending)
 	mux.HandleFunc("/peek", srv.handlePeek)
 
-	fmt.Printf("🪄 Thymer queue server on http://localhost:%s\n", LocalServerPort)
-	fmt.Printf("   Token: %s\n", token)
-	fmt.Println()
-	fmt.Println("   POST /queue   - Add to queue")
-	fmt.Println("   GET  /stream  - SSE stream")
-	fmt.Println("   GET  /pending - Poll (legacy)")
-	fmt.Println("   GET  /peek    - View queue")
-	fmt.Println()
-	fmt.Println("   Ctrl+C to stop")
+	logger.Info("server starting", "port", LocalServerPort, "token", token)
 
 	if err := http.ListenAndServe(":"+LocalServerPort, srv.corsMiddleware(mux)); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		logger.Error("server failed", "error", err)
 		os.Exit(1)
 	}
 }
@@ -435,7 +448,7 @@ func (s *Server) queueGitHubChanges(issues []GitHubIssue) {
 			CreatedAt: time.Now().Format(time.RFC3339),
 		}
 		s.queue[item.ID] = item
-		fmt.Printf("📥 Queued GitHub: %s #%d (%s)\n", issue.Repo, issue.Number, issue.State)
+		logger.Debug("queued GitHub issue", "repo", issue.Repo, "number", issue.Number, "state", issue.State)
 	}
 }
 
@@ -480,11 +493,12 @@ func (s *Server) doReadwiseSync() {
 
 	docs, err := s.rwSyncer.Sync()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  Readwise sync error: %v\n", err)
+		logger.Error("Readwise sync failed", "error", err)
 		return
 	}
 
 	if len(docs) == 0 {
+		logger.Debug("Readwise sync complete", "changes", 0)
 		return
 	}
 
@@ -504,8 +518,9 @@ func (s *Server) doReadwiseSync() {
 		if doc.IsNew {
 			status = "new"
 		}
-		fmt.Printf("📚 Queued Readwise: %s (%s, %d highlights)\n", doc.Document.Title, status, len(doc.Highlights))
+		logger.Debug("queued Readwise", "title", doc.Document.Title, "status", status, "highlights", len(doc.Highlights))
 	}
+	logger.Info("Readwise sync complete", "documents", len(docs))
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
@@ -570,7 +585,7 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	s.queue[req.ID] = req
 	s.mu.Unlock()
 
-	fmt.Printf("📥 Queued: %s (%d bytes)\n", req.Action, len(req.Content))
+	logger.Debug("queued", "action", req.Action, "bytes", len(req.Content))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "id": req.ID})
@@ -596,7 +611,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "event: connected\ndata: {}\n\n")
 	flusher.Flush()
 
-	fmt.Println("📡 SSE client connected")
+	logger.Info("SSE client connected")
 
 	// Check queue every 2 seconds for 25 seconds
 	ticker := time.NewTicker(2 * time.Second)
@@ -611,18 +626,18 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			if item != nil {
 				data, _ := json.Marshal(item)
 				fmt.Fprintf(w, "data: %s\n\n", data)
-				fmt.Printf("📤 Sent: %s (%d bytes)\n", item.Action, len(item.Content))
+				logger.Debug("sent", "action", item.Action, "bytes", len(item.Content))
 			} else {
 				fmt.Fprintf(w, ": heartbeat\n\n")
 			}
 			flusher.Flush()
 
 		case <-timeout:
-			fmt.Println("📡 SSE timeout, client will reconnect")
+			logger.Debug("SSE timeout, client will reconnect")
 			return
 
 		case <-r.Context().Done():
-			fmt.Println("📡 SSE client disconnected")
+			logger.Info("SSE client disconnected")
 			return
 		}
 	}
@@ -640,7 +655,7 @@ func (s *Server) handlePending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("📤 Sent (poll): %s (%d bytes)\n", item.Action, len(item.Content))
+	logger.Debug("sent (poll)", "action", item.Action, "bytes", len(item.Content))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(item)
@@ -770,7 +785,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Server mode:")
 	fmt.Printf("  tm serve                            Start server on port %s\n", LocalServerPort)
-	fmt.Println("                                      Same API as Cloudflare Worker")
+	fmt.Println("  tm serve -v                         Verbose logging (debug level)")
 	fmt.Println()
 	fmt.Println("Config:")
 	fmt.Println("  Set THYMER_URL and THYMER_TOKEN environment variables")

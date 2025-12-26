@@ -233,7 +233,7 @@ func (s *ReadwiseSyncer) fetchAll(since time.Time) (docs []ReadwiseDocument, hig
 					wait = secs
 				}
 			}
-			fmt.Printf("📚 Readwise rate limited, waiting %v...\n", wait)
+			logger.Warn("Readwise rate limited", "wait", wait)
 			time.Sleep(wait)
 			continue
 		}
