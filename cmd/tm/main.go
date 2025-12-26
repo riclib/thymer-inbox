@@ -24,6 +24,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -55,6 +57,13 @@ func main() {
 		switch args[0] {
 		case "serve":
 			runServer()
+			return
+		case "resync":
+			if len(args) > 1 {
+				resyncRepo(args[1])
+			} else {
+				resyncRepo("") // Resync all
+			}
 			return
 		case "--help", "-h", "help":
 			printUsage()
@@ -183,6 +192,62 @@ type Server struct {
 	mu       sync.RWMutex
 	token    string
 	ghSyncer *GitHubSyncer
+}
+
+func resyncRepo(repo string) {
+	home, _ := os.UserHomeDir()
+	dbPath := filepath.Join(home, ".config", "tm", "github.db")
+
+	db, err := bolt.Open(dbPath, 0600, &bolt.Options{Timeout: 1 * time.Second})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	var deleted int
+	err = db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("github_issues"))
+		if b == nil {
+			return nil
+		}
+
+		var keysToDelete [][]byte
+		b.ForEach(func(k, v []byte) error {
+			key := string(k)
+			// If repo specified, only delete matching keys
+			// Key format: github_owner_repo_123
+			if repo == "" {
+				keysToDelete = append(keysToDelete, k)
+			} else {
+				repoSlug := strings.ReplaceAll(repo, "/", "_")
+				if strings.Contains(key, repoSlug) {
+					keysToDelete = append(keysToDelete, k)
+				}
+			}
+			return nil
+		})
+
+		for _, k := range keysToDelete {
+			if err := b.Delete(k); err != nil {
+				return err
+			}
+			deleted++
+		}
+		return nil
+	})
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if repo == "" {
+		fmt.Printf("✓ Cleared all %d GitHub issues from cache\n", deleted)
+	} else {
+		fmt.Printf("✓ Cleared %d issues for %s from cache\n", deleted, repo)
+	}
+	fmt.Println("  Restart 'tm serve' to resync")
 }
 
 func runServer() {
@@ -506,6 +571,7 @@ func printUsage() {
 	fmt.Println("  tm --collection 'Tasks' < todo.md   Push to specific collection")
 	fmt.Println("  tm create --title 'New Note'        Create new record")
 	fmt.Println("  tm serve                            Run local queue server")
+	fmt.Println("  tm resync [repo]                    Clear GitHub cache (resync on next serve)")
 	fmt.Println()
 	fmt.Println("Actions:")
 	fmt.Println("  append (default)  Append to daily page")
