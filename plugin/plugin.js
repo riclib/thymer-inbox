@@ -187,10 +187,21 @@ class Plugin extends AppPlugin {
     }
 
     async handleQueueItem(data) {
-        const content = data.content || data.markdown || '';
+        const rawContent = data.content || data.markdown || '';
         const action = data.action || 'append';
         const cliTimestamp = data.createdAt ? new Date(data.createdAt) : new Date();
         const timeStr = cliTimestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+        // Check for frontmatter first - this is the universal interface
+        const { meta, body } = this.parseFrontmatter(rawContent);
+        const hasFrontmatter = Object.keys(meta).length > 0;
+        const content = hasFrontmatter ? body : rawContent;
+
+        // If frontmatter specifies a collection, route there
+        if (hasFrontmatter && meta.collection) {
+            await this.handleFrontmatterItem(data.title || meta.title, meta, body);
+            return;
+        }
 
         // Find today's Journal entry
         const journalRecord = await this.getTodayJournalRecord();
@@ -217,7 +228,7 @@ class Plugin extends AppPlugin {
             return;
         }
 
-        // Handle GitHub sync
+        // Handle GitHub sync (legacy - now uses frontmatter)
         if (action === 'github_sync') {
             await this.handleGitHubSync(data);
             return;
@@ -514,6 +525,99 @@ class Plugin extends AppPlugin {
         } catch (e) {
             // Properties may not exist if not using Collection Plugin
             console.log('Could not set properties (not a GitHub collection?):', e.message);
+        }
+    }
+
+    async handleFrontmatterItem(title, meta, body) {
+        // Generic handler for any frontmatter-based content
+        // Routes to specified collection and sets any matching properties
+        const collectionName = meta.collection;
+        console.log('📦 Frontmatter item:', collectionName, title);
+
+        // Find target collection
+        const collections = await this.data.getAllCollections();
+        const targetCollection = collections.find(c =>
+            c.getName().toLowerCase() === collectionName.toLowerCase()
+        );
+
+        if (!targetCollection) {
+            console.error('Collection not found:', collectionName);
+            this.ui.addToaster({
+                title: '🪄 Error',
+                message: `Collection "${collectionName}" not found`,
+                dismissible: true,
+                autoDestroyTime: 3000,
+            });
+            return;
+        }
+
+        // Check for existing record by title
+        const records = await targetCollection.getAllRecords();
+        let existingRecord = records.find(r => r.getName() === title);
+
+        if (existingRecord) {
+            // Update existing - set properties
+            await this.setPropertiesFromMeta(existingRecord, meta);
+            console.log('📝 Updated:', title);
+            this.ui.addToaster({
+                title: '📦 Updated',
+                message: `${title} in ${collectionName}`,
+                dismissible: true,
+                autoDestroyTime: 2000,
+            });
+        } else {
+            // Create new record
+            const newGuid = targetCollection.createRecord(title);
+            if (!newGuid) {
+                console.error('Failed to create record');
+                return;
+            }
+
+            // Wait for sync and get record
+            await new Promise(resolve => setTimeout(resolve, 100));
+            const allRecords = await targetCollection.getAllRecords();
+            const newRecord = allRecords.find(r => r.guid === newGuid);
+
+            if (newRecord) {
+                // Set properties from meta
+                await this.setPropertiesFromMeta(newRecord, meta);
+                // Insert body content
+                if (body.trim()) {
+                    await this.insertMarkdown(body, newRecord);
+                }
+            }
+
+            this.ui.addToaster({
+                title: '📦 Created',
+                message: `${title} in ${collectionName}`,
+                dismissible: true,
+                autoDestroyTime: 2000,
+            });
+        }
+    }
+
+    async setPropertiesFromMeta(record, meta) {
+        // Try to set any property that matches a meta key
+        // This is generic - works with any Collection Plugin fields
+        const skipKeys = ['collection', 'title']; // These are routing, not properties
+
+        for (const [key, value] of Object.entries(meta)) {
+            if (skipKeys.includes(key)) continue;
+
+            try {
+                const prop = record.prop(key);
+                if (prop) {
+                    if (typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') {
+                        prop.set(value);
+                    } else if (Array.isArray(value)) {
+                        // Could be multi-select or tags
+                        prop.set(value.join(', '));
+                    }
+                    console.log(`  Set ${key}:`, value);
+                }
+            } catch (e) {
+                // Property doesn't exist on this collection, skip
+            }
         }
     }
 

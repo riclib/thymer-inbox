@@ -172,6 +172,27 @@ task service:stop
 task service:logs
 ```
 
+## Universal Frontmatter Interface
+
+Any content with YAML frontmatter is automatically routed to the specified collection:
+
+```yaml
+---
+collection: Reading
+title: Article Title
+author: John Doe
+url: https://example.com/article
+tags: [productivity, tech]
+---
+
+Article content here...
+```
+
+This makes it easy to integrate with any source (Readwise, Pocket, custom scripts):
+- `collection` (required): Target collection name
+- `title`: Record title (or use data.title)
+- Any other keys: Matched against collection properties
+
 ## GitHub Sync (Experimental)
 
 Automatically sync GitHub issues and PRs to a "GitHub" collection in Thymer.
@@ -190,14 +211,17 @@ Automatically sync GitHub issues and PRs to a "GitHub" collection in Thymer.
 ### How it works
 
 - Syncs every 1 minute
+- Uses frontmatter for routing: `collection: GitHub`
 - Creates a note for each issue/PR: `repo#123 Issue Title`
 - Includes: state, author, labels, body, link
 - Stores state in `~/.config/tm/github.db` (bbolt)
+- If collection has matching properties, they're auto-populated
 
-### Limitations
+### Collection Plugin (Optional)
 
-- Updates to existing issues are logged but content not re-synced yet
-- No custom properties (would require Collection Plugin)
+For custom properties, create a GitHub collection using `plugin/github-collection.json`:
+- Fields: Repository, #, Type, State, Author, URL
+- Enables filtering/sorting by issue state, type, etc.
 
 ## Cloudflare Worker (Untested)
 
