@@ -504,28 +504,8 @@ class Plugin extends AppPlugin {
 
     async setGitHubProperties(record, meta) {
         // Set properties if they exist on the record (Collection Plugin fields)
-        try {
-            const repo = record.prop('gh_repo');
-            if (repo) repo.set(meta.repo || '');
-
-            const number = record.prop('gh_number');
-            if (number) number.set(meta.number || 0);
-
-            const type = record.prop('gh_type');
-            if (type) type.setChoice(meta.type || 'issue');
-
-            const state = record.prop('gh_state');
-            if (state) state.setChoice(meta.state || 'open');
-
-            const author = record.prop('gh_author');
-            if (author) author.set(meta.author || '');
-
-            const url = record.prop('gh_url');
-            if (url) url.set(meta.url || '');
-        } catch (e) {
-            // Properties may not exist if not using Collection Plugin
-            console.log('Could not set properties (not a GitHub collection?):', e.message);
-        }
+        // Uses generic setPropertiesFromMeta now - property IDs match frontmatter keys
+        await this.setPropertiesFromMeta(record, meta);
     }
 
     async handleFrontmatterItem(title, meta, body) {

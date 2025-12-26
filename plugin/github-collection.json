@@ -1,68 +1,111 @@
 {
-  "name": "GitHub",
-  "icon": "bug",
-  "fields": [
-    {
-      "id": "gh_repo",
-      "label": "Repository",
-      "type": "text",
-      "icon": "folder",
-      "active": true,
-      "many": false,
-      "read_only": true
+    "ver": 1,
+    "name": "GitHub",
+    "icon": "ti-brand-github",
+    "home": false,
+    "page_field_ids": [],
+    "item_name": "Issue",
+    "description": "GitHub Issues & PRs",
+    "show_sidebar_items": true,
+    "show_cmdpal_items": true,
+    "fields": [
+        {
+            "icon": "ti-abc",
+            "id": "title",
+            "label": "Title",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-folder",
+            "id": "repo",
+            "label": "Repository",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-hash",
+            "id": "number",
+            "label": "#",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "number"
+        },
+        {
+            "icon": "ti-tag",
+            "id": "type",
+            "label": "Type",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {"id": "issue", "label": "Issue", "color": "2", "active": true},
+                {"id": "pull_request", "label": "PR", "color": "4", "active": true}
+            ]
+        },
+        {
+            "icon": "ti-circle",
+            "id": "state",
+            "label": "State",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {"id": "open", "label": "Open", "color": "2", "active": true},
+                {"id": "closed", "label": "Closed", "color": "5", "active": true}
+            ]
+        },
+        {
+            "icon": "ti-user",
+            "id": "author",
+            "label": "Author",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-link",
+            "id": "url",
+            "label": "URL",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "url"
+        },
+        {
+            "icon": "ti-clock-edit",
+            "id": "updated_at",
+            "label": "Modified",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "datetime"
+        },
+        {
+            "icon": "ti-clock-plus",
+            "id": "created_at",
+            "label": "Created",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "datetime"
+        }
+    ],
+    "sidebar_record_sort_dir": "desc",
+    "sidebar_record_sort_field_id": "updated_at",
+    "managed": {
+        "fields": false,
+        "views": false,
+        "sidebar": false
     },
-    {
-      "id": "gh_number",
-      "label": "#",
-      "type": "number",
-      "icon": "hash",
-      "active": true,
-      "many": false,
-      "read_only": true
-    },
-    {
-      "id": "gh_type",
-      "label": "Type",
-      "type": "choice",
-      "icon": "tag",
-      "active": true,
-      "many": false,
-      "read_only": true,
-      "choices": [
-        {"id": "issue", "label": "Issue", "color": "2", "active": true},
-        {"id": "pull_request", "label": "PR", "color": "4", "active": true}
-      ]
-    },
-    {
-      "id": "gh_state",
-      "label": "State",
-      "type": "choice",
-      "icon": "circle",
-      "active": true,
-      "many": false,
-      "read_only": false,
-      "choices": [
-        {"id": "open", "label": "Open", "color": "2", "active": true},
-        {"id": "closed", "label": "Closed", "color": "5", "active": true}
-      ]
-    },
-    {
-      "id": "gh_author",
-      "label": "Author",
-      "type": "text",
-      "icon": "user",
-      "active": true,
-      "many": false,
-      "read_only": true
-    },
-    {
-      "id": "gh_url",
-      "label": "URL",
-      "type": "url",
-      "icon": "link",
-      "active": true,
-      "many": false,
-      "read_only": true
-    }
-  ]
+    "custom": {},
+    "views": []
 }
