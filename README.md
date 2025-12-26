@@ -87,12 +87,18 @@ Create `~/.config/tm/config`:
 ```
 url=http://localhost:19501
 token=local-dev-token
+
+# Optional: GitHub sync
+github_token=ghp_xxxxxxxxxxxx
+github_repos=owner/repo1,owner/repo2
 ```
 
 Or set environment variables:
 ```bash
 export THYMER_URL=http://localhost:19501
 export THYMER_TOKEN=local-dev-token
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+export GITHUB_REPOS=owner/repo1,owner/repo2
 ```
 
 ### 4. Install the Thymer Plugin
@@ -165,6 +171,33 @@ task service:stop
 # View logs
 task service:logs
 ```
+
+## GitHub Sync (Experimental)
+
+Automatically sync GitHub issues and PRs to a "GitHub" collection in Thymer.
+
+### Setup
+
+1. Create a [GitHub Personal Access Token](https://github.com/settings/tokens) with `repo` scope
+2. Add to your config:
+   ```
+   github_token=ghp_xxxxxxxxxxxx
+   github_repos=owner/repo1,owner/repo2
+   ```
+3. Create a "GitHub" collection in Thymer (or it will use "Inbox")
+4. Restart `tm serve`
+
+### How it works
+
+- Syncs every 1 minute
+- Creates a note for each issue/PR: `repo#123 Issue Title`
+- Includes: state, author, labels, body, link
+- Stores state in `~/.config/tm/github.db` (bbolt)
+
+### Limitations
+
+- Updates to existing issues are logged but content not re-synced yet
+- No custom properties (would require Collection Plugin)
 
 ## Cloudflare Worker (Untested)
 

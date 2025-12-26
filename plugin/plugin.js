@@ -217,6 +217,12 @@ class Plugin extends AppPlugin {
             return;
         }
 
+        // Handle GitHub sync
+        if (action === 'github_sync') {
+            await this.handleGitHubSync(content);
+            return;
+        }
+
         // Detect content type
         const lines = content.split('\n').filter(l => l.trim() !== '');
         const isOneLiner = lines.length === 1;
@@ -374,6 +380,94 @@ class Plugin extends AppPlugin {
                 { type: 'text', text: ' added ' },
                 { type: 'ref', text: { guid: noteGuid } }
             ]);
+        }
+    }
+
+    async handleGitHubSync(content) {
+        try {
+            const issue = JSON.parse(content);
+            console.log('📡 GitHub sync:', issue.repo, '#' + issue.number, issue.state);
+
+            // Find GitHub collection (or fallback to Inbox)
+            const collections = await this.data.getAllCollections();
+            let ghCollection = collections.find(c => c.getName() === 'GitHub');
+            if (!ghCollection) {
+                ghCollection = collections.find(c => c.getName() === 'Inbox');
+            }
+            if (!ghCollection) {
+                console.error('No GitHub or Inbox collection found');
+                return;
+            }
+
+            // Get all records to find existing issue
+            const records = await ghCollection.getAllRecords();
+
+            // Look for existing record by matching title pattern: "repo#123"
+            const repoName = issue.repo.split('/')[1] || issue.repo;
+            const issuePrefix = `${repoName}#${issue.number}`;
+            let existingRecord = records.find(r => r.getName().startsWith(issuePrefix));
+
+            // Build title and content
+            const stateEmoji = issue.state === 'closed' ? '✅' : (issue.type === 'pull_request' ? '🔀' : '🔵');
+            const title = `${repoName}#${issue.number} ${issue.title}`;
+
+            // Build markdown body
+            let body = `**State:** ${stateEmoji} ${issue.state}`;
+            if (issue.type === 'pull_request' && issue.merged) {
+                body += ' (merged)';
+            }
+            body += `\n**Author:** ${issue.author || 'unknown'}`;
+            if (issue.labels && issue.labels.length > 0) {
+                body += `\n**Labels:** ${issue.labels.join(', ')}`;
+            }
+            body += `\n\n[View on GitHub](${issue.url})`;
+            if (issue.body) {
+                body += `\n\n---\n\n${issue.body}`;
+            }
+
+            if (existingRecord) {
+                // Update existing record - clear and re-insert content
+                const lineItems = await existingRecord.getLineItems();
+                // For now, just log - updating content is complex
+                console.log('📝 Would update:', existingRecord.getName(), '- has', lineItems.length, 'items');
+                this.ui.addToaster({
+                    title: '📡 GitHub',
+                    message: `Updated: ${issuePrefix}`,
+                    dismissible: true,
+                    autoDestroyTime: 2000,
+                });
+            } else {
+                // Create new record
+                const newGuid = ghCollection.createRecord(title);
+                if (!newGuid) {
+                    console.error('Failed to create GitHub issue record');
+                    return;
+                }
+
+                // Wait for sync and get record
+                await new Promise(resolve => setTimeout(resolve, 100));
+                const allRecords = await ghCollection.getAllRecords();
+                const newRecord = allRecords.find(r => r.guid === newGuid);
+
+                if (newRecord) {
+                    await this.insertMarkdown(body, newRecord);
+                }
+
+                this.ui.addToaster({
+                    title: '📡 GitHub',
+                    message: `Created: ${issuePrefix}`,
+                    dismissible: true,
+                    autoDestroyTime: 2000,
+                });
+            }
+        } catch (e) {
+            console.error('GitHub sync error:', e);
+            this.ui.addToaster({
+                title: '📡 GitHub Error',
+                message: e.message,
+                dismissible: true,
+                autoDestroyTime: 3000,
+            });
         }
     }
 

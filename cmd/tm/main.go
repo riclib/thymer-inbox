@@ -13,6 +13,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,8 +32,10 @@ const (
 )
 
 type Config struct {
-	URL   string
-	Token string
+	URL         string
+	Token       string
+	GitHubToken string
+	GitHubRepos []string
 }
 
 type QueueItem struct {
@@ -176,15 +179,17 @@ func sendToQueue(config Config, req QueueItem) error {
 // ============================================================================
 
 type Server struct {
-	queue map[string]QueueItem
-	mu    sync.RWMutex
-	token string
+	queue    map[string]QueueItem
+	mu       sync.RWMutex
+	token    string
+	ghSyncer *GitHubSyncer
 }
 
 func runServer() {
-	token := os.Getenv("THYMER_TOKEN")
+	config := loadConfig()
+
+	token := config.Token
 	if token == "" {
-		// Generate a simple token for local dev
 		token = "local-dev-token"
 		fmt.Printf("⚠️  No THYMER_TOKEN set, using: %s\n", token)
 	}
@@ -192,6 +197,25 @@ func runServer() {
 	srv := &Server{
 		queue: make(map[string]QueueItem),
 		token: token,
+	}
+
+	// Start GitHub sync if configured
+	if config.GitHubToken != "" && len(config.GitHubRepos) > 0 {
+		home, _ := os.UserHomeDir()
+		dataDir := filepath.Join(home, ".config", "tm")
+		os.MkdirAll(dataDir, 0755)
+
+		syncer, err := NewGitHubSyncer(config.GitHubToken, config.GitHubRepos, dataDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  GitHub sync disabled: %v\n", err)
+		} else {
+			srv.ghSyncer = syncer
+			ctx := context.Background()
+			syncer.StartPeriodicSync(ctx, 1*time.Minute, func(issues []GitHubIssue) {
+				srv.queueGitHubChanges(issues)
+			})
+			fmt.Printf("📡 GitHub sync enabled for: %s\n", strings.Join(config.GitHubRepos, ", "))
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -214,6 +238,24 @@ func runServer() {
 	if err := http.ListenAndServe(":"+LocalServerPort, srv.corsMiddleware(mux)); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func (s *Server) queueGitHubChanges(issues []GitHubIssue) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, issue := range issues {
+		// Create queue item for each issue
+		data, _ := json.Marshal(issue)
+		item := QueueItem{
+			ID:        fmt.Sprintf("gh-%d", time.Now().UnixNano()),
+			Action:    "github_sync",
+			Content:   string(data),
+			CreatedAt: time.Now().Format(time.RFC3339),
+		}
+		s.queue[item.ID] = item
+		fmt.Printf("📥 Queued GitHub: %s #%d (%s)\n", issue.Repo, issue.Number, issue.State)
 	}
 }
 
@@ -407,29 +449,52 @@ func (s *Server) popOldest() *QueueItem {
 
 func loadConfig() Config {
 	config := Config{
-		URL:   os.Getenv("THYMER_URL"),
-		Token: os.Getenv("THYMER_TOKEN"),
+		URL:         os.Getenv("THYMER_URL"),
+		Token:       os.Getenv("THYMER_TOKEN"),
+		GitHubToken: os.Getenv("GITHUB_TOKEN"),
 	}
 
-	// Try config file if env vars not set
-	if config.URL == "" || config.Token == "" {
-		home, _ := os.UserHomeDir()
-		configPath := filepath.Join(home, ".config", "tm", "config")
-		data, err := os.ReadFile(configPath)
-		if err == nil {
-			for _, line := range strings.Split(string(data), "\n") {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "url=") {
-					config.URL = strings.TrimPrefix(line, "url=")
-				}
-				if strings.HasPrefix(line, "token=") {
-					config.Token = strings.TrimPrefix(line, "token=")
-				}
+	if repos := os.Getenv("GITHUB_REPOS"); repos != "" {
+		config.GitHubRepos = parseRepoList(repos)
+	}
+
+	// Try config file
+	home, _ := os.UserHomeDir()
+	configPath := filepath.Join(home, ".config", "tm", "config")
+	data, err := os.ReadFile(configPath)
+	if err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if strings.HasPrefix(line, "url=") && config.URL == "" {
+				config.URL = strings.TrimPrefix(line, "url=")
+			}
+			if strings.HasPrefix(line, "token=") && config.Token == "" {
+				config.Token = strings.TrimPrefix(line, "token=")
+			}
+			if strings.HasPrefix(line, "github_token=") && config.GitHubToken == "" {
+				config.GitHubToken = strings.TrimPrefix(line, "github_token=")
+			}
+			if strings.HasPrefix(line, "github_repos=") && len(config.GitHubRepos) == 0 {
+				config.GitHubRepos = parseRepoList(strings.TrimPrefix(line, "github_repos="))
 			}
 		}
 	}
 
 	return config
+}
+
+func parseRepoList(s string) []string {
+	var repos []string
+	for _, r := range strings.Split(s, ",") {
+		r = strings.TrimSpace(r)
+		if r != "" {
+			repos = append(repos, r)
+		}
+	}
+	return repos
 }
 
 func printUsage() {
