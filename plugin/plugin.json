@@ -1,0 +1,8 @@
+{
+	"ver": 1,
+	"name": "Thymer Paste",
+	"icon": "wand",
+	"description": "Paste markdown from clipboard, CLI, or iOS Shortcuts",
+	"queueUrl": "",
+	"queueToken": ""
+}

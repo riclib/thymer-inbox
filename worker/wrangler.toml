@@ -1,0 +1,15 @@
+name = "thymer-queue"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+# KV namespace - create with: wrangler kv:namespace create THYMER_KV
+# Then add the id below
+kv_namespaces = [
+  { binding = "THYMER_KV", id = "YOUR_KV_NAMESPACE_ID" }
+]
+
+# Set your token as a secret:
+# wrangler secret put THYMER_TOKEN
+
+[vars]
+# Non-secret environment variables go here

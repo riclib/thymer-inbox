@@ -1,0 +1,236 @@
+version: '3'
+
+vars:
+  BINARY_NAME: tm
+  SERVICE_NAME: thymer-inbox
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  # ==========================================================================
+  # CLI Build & Install
+  # ==========================================================================
+
+  build:
+    desc: Build the tm CLI binary
+    dir: cmd/tm
+    cmds:
+      - go build -o ../../{{.BINARY_NAME}} .
+      - echo "Built ./{{.BINARY_NAME}}"
+
+  install:
+    desc: Install tm binary to ~/.local/bin
+    deps: [build]
+    cmds:
+      - mkdir -p ~/.local/bin
+      - cp {{.BINARY_NAME}} ~/.local/bin/{{.BINARY_NAME}}
+      - chmod +x ~/.local/bin/{{.BINARY_NAME}}
+      - echo "Installed to ~/.local/bin/{{.BINARY_NAME}}"
+      - echo "Make sure ~/.local/bin is in your PATH"
+
+  # ==========================================================================
+  # Local Server (systemd service)
+  # ==========================================================================
+
+  serve:
+    desc: Run local queue server (foreground)
+    cmds:
+      - ./{{.BINARY_NAME}} serve
+
+  service:install:
+    desc: Install systemd user service for tm server
+    cmds:
+      - mkdir -p ~/.config/systemd/user
+      - mkdir -p ~/.local/share/{{.SERVICE_NAME}}/logs
+      - |
+        cat > ~/.config/systemd/user/{{.SERVICE_NAME}}.service << 'EOF'
+        [Unit]
+        Description=Thymer Inbox Queue Server
+        After=network.target
+
+        [Service]
+        Type=simple
+        ExecStart=%h/.local/bin/tm serve
+        Restart=on-failure
+        RestartSec=5
+        StandardOutput=append:%h/.local/share/thymer-inbox/logs/server.log
+        StandardError=append:%h/.local/share/thymer-inbox/logs/server.log
+
+        [Install]
+        WantedBy=default.target
+        EOF
+      - systemctl --user daemon-reload
+      - systemctl --user enable {{.SERVICE_NAME}}.service
+      - echo "Service installed and enabled"
+      - echo "Run 'task service:start' to start it"
+
+  service:start:
+    desc: Start the tm server service
+    cmds:
+      - systemctl --user start {{.SERVICE_NAME}}.service
+      - echo "Service started"
+      - systemctl --user status {{.SERVICE_NAME}}.service --no-pager
+
+  service:stop:
+    desc: Stop the tm server service
+    cmds:
+      - systemctl --user stop {{.SERVICE_NAME}}.service
+      - echo "Service stopped"
+
+  service:restart:
+    desc: Restart the tm server service
+    cmds:
+      - systemctl --user restart {{.SERVICE_NAME}}.service
+      - echo "Service restarted"
+
+  service:status:
+    desc: Show tm server service status
+    cmds:
+      - systemctl --user status {{.SERVICE_NAME}}.service --no-pager
+
+  service:logs:
+    desc: Tail tm server logs
+    cmds:
+      - tail -f ~/.local/share/{{.SERVICE_NAME}}/logs/server.log
+
+  service:uninstall:
+    desc: Stop and remove the systemd service
+    cmds:
+      - systemctl --user stop {{.SERVICE_NAME}}.service || true
+      - systemctl --user disable {{.SERVICE_NAME}}.service || true
+      - rm -f ~/.config/systemd/user/{{.SERVICE_NAME}}.service
+      - systemctl --user daemon-reload
+      - echo "Service removed"
+
+  # ==========================================================================
+  # Plugin Tasks
+  # ==========================================================================
+
+  plugin:copy:
+    desc: Copy plugin.js to clipboard (for pasting into Thymer)
+    cmds:
+      - cat plugin/plugin.js | wl-copy
+      - echo "plugin/plugin.js copied to clipboard"
+
+  plugin:copy-json:
+    desc: Copy plugin.json to clipboard
+    cmds:
+      - cat plugin/plugin.json | wl-copy
+      - echo "plugin/plugin.json copied to clipboard"
+
+  plugin:copy-all:
+    desc: Copy both plugin files (js first, then json)
+    cmds:
+      - cat plugin/plugin.js | wl-copy
+      - echo "plugin.js copied - paste it, then press Enter to copy plugin.json"
+      - read
+      - cat plugin/plugin.json | wl-copy
+      - echo "plugin.json copied to clipboard"
+
+  plugin:test:
+    desc: Copy test markdown to clipboard
+    cmds:
+      - |
+        cat <<'EOF' | wl-copy
+        # Heading 1
+
+        ## Heading 2 with **bold**
+
+        Regular paragraph with **bold**, *italic*, and `code`.
+
+        - Bullet one
+        - Bullet with **formatting**
+
+        1. First item
+        2. Second item
+
+        > Blockquote text
+
+        - [ ] Unchecked task
+        - [x] Checked task
+
+        ```javascript
+        function hello() {
+            return "world";
+        }
+        ```
+
+        Final paragraph.
+        EOF
+      - echo "Test markdown copied to clipboard"
+
+  # ==========================================================================
+  # Cloudflare Worker
+  # ==========================================================================
+
+  worker:dev:
+    desc: Run worker locally with wrangler
+    dir: worker
+    cmds:
+      - npx wrangler dev
+
+  worker:deploy:
+    desc: Deploy worker to Cloudflare
+    dir: worker
+    cmds:
+      - npx wrangler deploy
+
+  worker:logs:
+    desc: Tail worker logs from Cloudflare
+    dir: worker
+    cmds:
+      - npx wrangler tail
+
+  worker:kv-create:
+    desc: Create KV namespace for the worker
+    dir: worker
+    cmds:
+      - npx wrangler kv:namespace create THYMER_KV
+      - echo ""
+      - echo "Copy the 'id' value and update worker/wrangler.toml"
+
+  worker:secret:
+    desc: Set THYMER_TOKEN secret for the worker
+    dir: worker
+    cmds:
+      - npx wrangler secret put THYMER_TOKEN
+
+  # ==========================================================================
+  # SDK (Thymer Plugin SDK)
+  # ==========================================================================
+
+  sdk:update:
+    desc: Update the SDK to latest from upstream
+    dir: sdk
+    cmds:
+      - git pull origin main
+      - echo "SDK updated"
+
+  sdk:dev:
+    desc: Run SDK dev server (hot reload)
+    dir: sdk
+    cmds:
+      - npm run dev
+
+  sdk:install:
+    desc: Install SDK dependencies
+    dir: sdk
+    cmds:
+      - npm install
+
+  # ==========================================================================
+  # Git Helpers
+  # ==========================================================================
+
+  status:
+    desc: Show git status
+    cmds:
+      - git status
+
+  log:
+    desc: Show recent git log
+    cmds:
+      - git log --oneline -10
