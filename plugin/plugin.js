@@ -11,6 +11,46 @@
 const DEFAULT_QUEUE_URL = 'http://localhost:19501';
 const DEFAULT_QUEUE_TOKEN = 'local-dev-token';
 
+// Valid highlight languages for code blocks
+const VALID_LANGUAGES = new Set([
+    'bash', 'c', 'coffeescript', 'cpp', 'csharp', 'css', 'dart', 'diff',
+    'go', 'graphql', 'ini', 'java', 'javascript', 'json', 'kotlin', 'less',
+    'lua', 'makefile', 'markdown', 'objectivec', 'perl', 'php', 'php-template',
+    'plaintext', 'powershell', 'python', 'python-repl', 'r', 'ruby', 'rust',
+    'scala', 'scss', 'shell', 'sql', 'swift', 'typescript', 'vbnet', 'wasm',
+    'xml', 'yaml'
+]);
+
+// Language aliases mapping
+const LANGUAGE_ALIASES = {
+    'js': 'javascript',
+    'ts': 'typescript',
+    'py': 'python',
+    'rb': 'ruby',
+    'sh': 'bash',
+    'zsh': 'bash',
+    'yml': 'yaml',
+    'objective-c': 'objectivec',
+    'objc': 'objectivec',
+    'c++': 'cpp',
+    'c#': 'csharp',
+    'cs': 'csharp',
+    'golang': 'go',
+    'rs': 'rust',
+    'kt': 'kotlin',
+    'md': 'markdown',
+    'html': 'xml',
+    'htm': 'xml'
+};
+
+function normalizeLanguage(lang) {
+    if (!lang) return null;
+    const lower = lang.toLowerCase().trim();
+    if (VALID_LANGUAGES.has(lower)) return lower;
+    if (LANGUAGE_ALIASES[lower]) return LANGUAGE_ALIASES[lower];
+    return null; // Unknown language, will default to plaintext
+}
+
 class Plugin extends AppPlugin {
 
     onLoad() {
@@ -724,6 +764,10 @@ class Plugin extends AppPlugin {
                     if (newItem) {
                         // Update the parent's afterItem for siblings
                         parent.afterItem = newItem;
+                        // Set heading size using new API
+                        if (headingLevel > 1) {
+                            newItem.setHeadingSize(headingLevel);
+                        }
                         // Push this heading as new parent for deeper content
                         parentStack.push({ item: newItem, afterItem: null, level: headingLevel });
                     }
@@ -749,8 +793,11 @@ class Plugin extends AppPlugin {
 
                     // For code blocks, create child text items for each line
                     if (block.type === 'block' && block.codeLines) {
-                        // Call setSegments on block to sync mp
-                        newItem.setSegments([]);
+                        // Set syntax highlighting language using new API
+                        const lang = normalizeLanguage(block.mp?.language);
+                        if (lang) {
+                            newItem.setHighlightLanguage(lang);
+                        }
 
                         let codeLastChild = null;
                         for (const line of block.codeLines) {
