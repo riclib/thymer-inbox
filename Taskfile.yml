@@ -121,6 +121,13 @@ tasks:
       - cat plugin/plugin.json | wl-copy
       - echo "plugin/plugin.json copied to clipboard"
 
+  plugin:copy-github:
+    desc: Copy github-collection.json to clipboard (for creating GitHub collection)
+    cmds:
+      - cat plugin/github-collection.json | wl-copy
+      - echo "plugin/github-collection.json copied to clipboard"
+      - echo "Create a new Collection Plugin in Thymer and paste this as the config"
+
   plugin:copy-all:
     desc: Copy both plugin files (js first, then json)
     cmds:
