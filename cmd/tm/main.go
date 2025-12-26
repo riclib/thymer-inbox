@@ -246,12 +246,18 @@ func (s *Server) queueGitHubChanges(issues []GitHubIssue) {
 	defer s.mu.Unlock()
 
 	for _, issue := range issues {
-		// Create queue item for each issue
-		data, _ := json.Marshal(issue)
+		// Build title: "repo#123 Title"
+		repoName := issue.Repo
+		if parts := strings.Split(issue.Repo, "/"); len(parts) == 2 {
+			repoName = parts[1]
+		}
+		title := fmt.Sprintf("%s#%d %s", repoName, issue.Number, issue.Title)
+
 		item := QueueItem{
 			ID:        fmt.Sprintf("gh-%d", time.Now().UnixNano()),
 			Action:    "github_sync",
-			Content:   string(data),
+			Title:     title,
+			Content:   issue.ToMarkdown(),
 			CreatedAt: time.Now().Format(time.RFC3339),
 		}
 		s.queue[item.ID] = item

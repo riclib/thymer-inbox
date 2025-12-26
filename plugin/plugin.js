@@ -219,7 +219,7 @@ class Plugin extends AppPlugin {
 
         // Handle GitHub sync
         if (action === 'github_sync') {
-            await this.handleGitHubSync(content);
+            await this.handleGitHubSync(data);
             return;
         }
 
@@ -383,10 +383,44 @@ class Plugin extends AppPlugin {
         }
     }
 
-    async handleGitHubSync(content) {
+    parseFrontmatter(content) {
+        // Parse YAML frontmatter from markdown
+        const match = content.match(/^---\n([\s\S]*?)\n---\n\n?([\s\S]*)$/);
+        if (!match) return { meta: {}, body: content };
+
+        const yamlStr = match[1];
+        const body = match[2];
+        const meta = {};
+
+        // Simple YAML parsing (key: value)
+        for (const line of yamlStr.split('\n')) {
+            const colonIdx = line.indexOf(':');
+            if (colonIdx > 0) {
+                const key = line.slice(0, colonIdx).trim();
+                let value = line.slice(colonIdx + 1).trim();
+                // Handle arrays like [a, b, c]
+                if (value.startsWith('[') && value.endsWith(']')) {
+                    value = value.slice(1, -1).split(',').map(s => s.trim());
+                }
+                // Handle booleans
+                else if (value === 'true') value = true;
+                else if (value === 'false') value = false;
+                // Handle numbers
+                else if (/^\d+$/.test(value)) value = parseInt(value, 10);
+                meta[key] = value;
+            }
+        }
+
+        return { meta, body };
+    }
+
+    async handleGitHubSync(data) {
         try {
-            const issue = JSON.parse(content);
-            console.log('📡 GitHub sync:', issue.repo, '#' + issue.number, issue.state);
+            const content = data.content || '';
+            const title = data.title || '';
+            const { meta, body } = this.parseFrontmatter(content);
+
+            console.log('📡 GitHub sync:', meta.repo, '#' + meta.number, meta.state);
 
             // Find GitHub collection (or fallback to Inbox)
             const collections = await this.data.getAllCollections();
@@ -403,33 +437,14 @@ class Plugin extends AppPlugin {
             const records = await ghCollection.getAllRecords();
 
             // Look for existing record by matching title pattern: "repo#123"
-            const repoName = issue.repo.split('/')[1] || issue.repo;
-            const issuePrefix = `${repoName}#${issue.number}`;
+            const repoName = (meta.repo || '').split('/')[1] || meta.repo;
+            const issuePrefix = `${repoName}#${meta.number}`;
             let existingRecord = records.find(r => r.getName().startsWith(issuePrefix));
 
-            // Build title and content
-            const stateEmoji = issue.state === 'closed' ? '✅' : (issue.type === 'pull_request' ? '🔀' : '🔵');
-            const title = `${repoName}#${issue.number} ${issue.title}`;
-
-            // Build markdown body
-            let body = `**State:** ${stateEmoji} ${issue.state}`;
-            if (issue.type === 'pull_request' && issue.merged) {
-                body += ' (merged)';
-            }
-            body += `\n**Author:** ${issue.author || 'unknown'}`;
-            if (issue.labels && issue.labels.length > 0) {
-                body += `\n**Labels:** ${issue.labels.join(', ')}`;
-            }
-            body += `\n\n[View on GitHub](${issue.url})`;
-            if (issue.body) {
-                body += `\n\n---\n\n${issue.body}`;
-            }
-
             if (existingRecord) {
-                // Update existing record - clear and re-insert content
-                const lineItems = await existingRecord.getLineItems();
-                // For now, just log - updating content is complex
-                console.log('📝 Would update:', existingRecord.getName(), '- has', lineItems.length, 'items');
+                // Update existing record properties
+                await this.setGitHubProperties(existingRecord, meta);
+                console.log('📝 Updated:', existingRecord.getName());
                 this.ui.addToaster({
                     title: '📡 GitHub',
                     message: `Updated: ${issuePrefix}`,
@@ -450,7 +465,12 @@ class Plugin extends AppPlugin {
                 const newRecord = allRecords.find(r => r.guid === newGuid);
 
                 if (newRecord) {
-                    await this.insertMarkdown(body, newRecord);
+                    // Set properties
+                    await this.setGitHubProperties(newRecord, meta);
+                    // Insert body content
+                    if (body.trim()) {
+                        await this.insertMarkdown(body, newRecord);
+                    }
                 }
 
                 this.ui.addToaster({
@@ -468,6 +488,32 @@ class Plugin extends AppPlugin {
                 dismissible: true,
                 autoDestroyTime: 3000,
             });
+        }
+    }
+
+    async setGitHubProperties(record, meta) {
+        // Set properties if they exist on the record (Collection Plugin fields)
+        try {
+            const repo = record.prop('gh_repo');
+            if (repo) repo.set(meta.repo || '');
+
+            const number = record.prop('gh_number');
+            if (number) number.set(meta.number || 0);
+
+            const type = record.prop('gh_type');
+            if (type) type.setChoice(meta.type || 'issue');
+
+            const state = record.prop('gh_state');
+            if (state) state.setChoice(meta.state || 'open');
+
+            const author = record.prop('gh_author');
+            if (author) author.set(meta.author || '');
+
+            const url = record.prop('gh_url');
+            if (url) url.set(meta.url || '');
+        } catch (e) {
+            // Properties may not exist if not using Collection Plugin
+            console.log('Could not set properties (not a GitHub collection?):', e.message);
         }
     }
 

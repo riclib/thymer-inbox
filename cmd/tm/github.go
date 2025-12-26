@@ -37,6 +37,39 @@ type GitHubIssue struct {
 	Merged    bool      `json:"merged,omitempty"`
 }
 
+// ToMarkdown returns the issue as markdown with YAML frontmatter
+func (i GitHubIssue) ToMarkdown() string {
+	var b strings.Builder
+
+	// YAML frontmatter
+	b.WriteString("---\n")
+	b.WriteString(fmt.Sprintf("repo: %s\n", i.Repo))
+	b.WriteString(fmt.Sprintf("number: %d\n", i.Number))
+	b.WriteString(fmt.Sprintf("type: %s\n", i.Type))
+	b.WriteString(fmt.Sprintf("state: %s\n", i.State))
+	b.WriteString(fmt.Sprintf("author: %s\n", i.Author))
+	b.WriteString(fmt.Sprintf("url: %s\n", i.URL))
+	if len(i.Labels) > 0 {
+		b.WriteString(fmt.Sprintf("labels: [%s]\n", strings.Join(i.Labels, ", ")))
+	}
+	if i.Merged {
+		b.WriteString("merged: true\n")
+	}
+	b.WriteString(fmt.Sprintf("created: %s\n", i.CreatedAt.Format(time.RFC3339)))
+	b.WriteString(fmt.Sprintf("updated: %s\n", i.UpdatedAt.Format(time.RFC3339)))
+	if i.ClosedAt != nil {
+		b.WriteString(fmt.Sprintf("closed: %s\n", i.ClosedAt.Format(time.RFC3339)))
+	}
+	b.WriteString("---\n\n")
+
+	// Body
+	if i.Body != "" {
+		b.WriteString(i.Body)
+	}
+
+	return b.String()
+}
+
 // GitHubSyncer handles syncing GitHub issues/PRs
 type GitHubSyncer struct {
 	client *github.Client

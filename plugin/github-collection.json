@@ -1,0 +1,68 @@
+{
+  "name": "GitHub",
+  "icon": "bug",
+  "fields": [
+    {
+      "id": "gh_repo",
+      "label": "Repository",
+      "type": "text",
+      "icon": "folder",
+      "active": true,
+      "many": false,
+      "read_only": true
+    },
+    {
+      "id": "gh_number",
+      "label": "#",
+      "type": "number",
+      "icon": "hash",
+      "active": true,
+      "many": false,
+      "read_only": true
+    },
+    {
+      "id": "gh_type",
+      "label": "Type",
+      "type": "choice",
+      "icon": "tag",
+      "active": true,
+      "many": false,
+      "read_only": true,
+      "choices": [
+        {"id": "issue", "label": "Issue", "color": "2", "active": true},
+        {"id": "pull_request", "label": "PR", "color": "4", "active": true}
+      ]
+    },
+    {
+      "id": "gh_state",
+      "label": "State",
+      "type": "choice",
+      "icon": "circle",
+      "active": true,
+      "many": false,
+      "read_only": false,
+      "choices": [
+        {"id": "open", "label": "Open", "color": "2", "active": true},
+        {"id": "closed", "label": "Closed", "color": "5", "active": true}
+      ]
+    },
+    {
+      "id": "gh_author",
+      "label": "Author",
+      "type": "text",
+      "icon": "user",
+      "active": true,
+      "many": false,
+      "read_only": true
+    },
+    {
+      "id": "gh_url",
+      "label": "URL",
+      "type": "url",
+      "icon": "link",
+      "active": true,
+      "many": false,
+      "read_only": true
+    }
+  ]
+}
