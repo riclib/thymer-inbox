@@ -35,6 +35,7 @@ type GitHubIssue struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 	ClosedAt  *time.Time `json:"closedAt,omitempty"`
 	Merged    bool      `json:"merged,omitempty"`
+	Verb      string    `json:"-"` // transient: opened, closed, merged, updated (not stored)
 }
 
 // ToMarkdown returns the issue as markdown with YAML frontmatter
@@ -44,6 +45,10 @@ func (i GitHubIssue) ToMarkdown() string {
 	// YAML frontmatter
 	b.WriteString("---\n")
 	b.WriteString("collection: GitHub\n")
+	b.WriteString(fmt.Sprintf("external_id: %s\n", i.ID))
+	if i.Verb != "" {
+		b.WriteString(fmt.Sprintf("verb: %s\n", i.Verb))
+	}
 	b.WriteString(fmt.Sprintf("title: %s\n", i.Title))
 	b.WriteString(fmt.Sprintf("repo: %s\n", i.Repo))
 	b.WriteString(fmt.Sprintf("number: %d\n", i.Number))
@@ -141,13 +146,14 @@ func (s *GitHubSyncer) Sync(ctx context.Context) (*SyncResult, error) {
 		}
 
 		for _, issue := range issues {
-			action, err := s.upsert(issue)
+			upsertResult, err := s.upsert(issue)
 			if err != nil {
 				result.Errors = append(result.Errors, err)
 				continue
 			}
 
-			switch action {
+			issue.Verb = upsertResult.Verb
+			switch upsertResult.Action {
 			case "created":
 				result.Created = append(result.Created, issue)
 			case "updated":
@@ -278,20 +284,27 @@ func (s *GitHubSyncer) convertPR(repo string, pr *github.PullRequest) GitHubIssu
 	return gi
 }
 
-func (s *GitHubSyncer) upsert(issue GitHubIssue) (string, error) {
-	var action string
+// UpsertResult contains the result of an upsert operation
+type UpsertResult struct {
+	Action string // created, updated, unchanged
+	Verb   string // opened, closed, merged, reopened, updated
+}
+
+func (s *GitHubSyncer) upsert(issue GitHubIssue) (*UpsertResult, error) {
+	result := &UpsertResult{}
 
 	err := s.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(githubBucket))
 
 		existing := b.Get([]byte(issue.ID))
 		if existing == nil {
-			// New issue
+			// New issue - verb is current state
 			data, err := json.Marshal(issue)
 			if err != nil {
 				return err
 			}
-			action = "created"
+			result.Action = "created"
+			result.Verb = stateToVerb(issue.State, issue.Merged)
 			return b.Put([]byte(issue.ID), data)
 		}
 
@@ -306,15 +319,35 @@ func (s *GitHubSyncer) upsert(issue GitHubIssue) (string, error) {
 			if err != nil {
 				return err
 			}
-			action = "updated"
+			result.Action = "updated"
+			// Determine verb based on what changed
+			if old.State != issue.State || old.Merged != issue.Merged {
+				result.Verb = stateToVerb(issue.State, issue.Merged)
+			} else {
+				result.Verb = "updated"
+			}
 			return b.Put([]byte(issue.ID), data)
 		}
 
-		action = "unchanged"
+		result.Action = "unchanged"
 		return nil
 	})
 
-	return action, err
+	return result, err
+}
+
+func stateToVerb(state string, merged bool) string {
+	if merged {
+		return "merged"
+	}
+	switch state {
+	case "open":
+		return "opened"
+	case "closed":
+		return "closed"
+	default:
+		return "updated"
+	}
 }
 
 func needsUpdate(old, new GitHubIssue) bool {

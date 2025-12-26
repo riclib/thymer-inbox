@@ -313,7 +313,7 @@ func (s *Server) queueGitHubChanges(issues []GitHubIssue) {
 	for _, issue := range issues {
 		item := QueueItem{
 			ID:        fmt.Sprintf("gh-%d", time.Now().UnixNano()),
-			Action:    "github_sync",
+			Action:    "append",
 			Title:     issue.Title,
 			Content:   issue.ToMarkdown(),
 			CreatedAt: time.Now().Format(time.RFC3339),

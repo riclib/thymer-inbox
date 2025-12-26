@@ -192,7 +192,7 @@ class Plugin extends AppPlugin {
         const cliTimestamp = data.createdAt ? new Date(data.createdAt) : new Date();
         const timeStr = cliTimestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-        // Check for frontmatter first - this is the universal interface
+        // Check for frontmatter - universal interface for all integrations
         const { meta, body } = this.parseFrontmatter(rawContent);
         const hasFrontmatter = Object.keys(meta).length > 0;
         const content = hasFrontmatter ? body : rawContent;
@@ -228,12 +228,6 @@ class Plugin extends AppPlugin {
             return;
         }
 
-        // Handle GitHub sync (legacy - now uses frontmatter)
-        if (action === 'github_sync') {
-            await this.handleGitHubSync(data);
-            return;
-        }
-
         // Detect content type
         const lines = content.split('\n').filter(l => l.trim() !== '');
         const isOneLiner = lines.length === 1;
@@ -262,7 +256,7 @@ class Plugin extends AppPlugin {
             // Markdown document: create in Inbox, add ref to Journal
             const result = await this.createInboxNote(content, cliTimestamp);
             if (result) {
-                await this.addNoteRefToJournal(journalRecord, timeStr, result.title, result.guid);
+                await this.addSyncRefToJournal(journalRecord, timeStr, 'added', result.guid);
                 this.ui.addToaster({
                     title: '🪄 Note created',
                     message: `"${result.title}" in Inbox`,
@@ -378,8 +372,8 @@ class Plugin extends AppPlugin {
         }
     }
 
-    async addNoteRefToJournal(journalRecord, timeStr, noteTitle, noteGuid) {
-        // Add: "15:21 added [[Note Title]]"
+    async addSyncRefToJournal(journalRecord, timeStr, action, guid) {
+        // Add: "15:21 added [[Title]]" or "15:21 updated [[Title]]"
         const existingItems = await journalRecord.getLineItems();
         const topLevelItems = existingItems.filter(item => item.parent_guid === journalRecord.guid);
         const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
@@ -388,24 +382,8 @@ class Plugin extends AppPlugin {
         if (newItem) {
             newItem.setSegments([
                 { type: 'bold', text: timeStr },
-                { type: 'text', text: ' added ' },
-                { type: 'ref', text: { guid: noteGuid } }
-            ]);
-        }
-    }
-
-    async addGitHubRefToJournal(journalRecord, timeStr, typeLabel, issueGuid) {
-        // Add: "15:21 new issue [[Issue Title]]"
-        const existingItems = await journalRecord.getLineItems();
-        const topLevelItems = existingItems.filter(item => item.parent_guid === journalRecord.guid);
-        const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
-
-        const newItem = await journalRecord.createLineItem(null, lastItem, 'text');
-        if (newItem) {
-            newItem.setSegments([
-                { type: 'bold', text: timeStr },
-                { type: 'text', text: ` new ${typeLabel} ` },
-                { type: 'ref', text: { guid: issueGuid } }
+                { type: 'text', text: ` ${action} ` },
+                { type: 'ref', text: { guid } }
             ]);
         }
     }
@@ -441,115 +419,12 @@ class Plugin extends AppPlugin {
         return { meta, body };
     }
 
-    async handleGitHubSync(data) {
-        try {
-            const content = data.content || '';
-            const title = data.title || '';
-            const { meta, body } = this.parseFrontmatter(content);
-
-            console.log('📡 GitHub sync:', meta.repo, '#' + meta.number, meta.state);
-
-            // Find GitHub collection (or fallback to Inbox)
-            const collections = await this.data.getAllCollections();
-            let ghCollection = collections.find(c => c.getName() === 'GitHub');
-            if (!ghCollection) {
-                ghCollection = collections.find(c => c.getName() === 'Inbox');
-            }
-            if (!ghCollection) {
-                console.error('No GitHub or Inbox collection found');
-                return;
-            }
-
-            // Get all records to find existing issue by repo+number
-            const records = await ghCollection.getAllRecords();
-            let existingRecord = null;
-
-            for (const record of records) {
-                try {
-                    const repoProp = record.prop('repo');
-                    const numberProp = record.prop('number');
-                    if (repoProp && numberProp) {
-                        const recordRepo = repoProp.text();
-                        const recordNumber = numberProp.number();
-                        if (recordRepo === meta.repo && recordNumber === meta.number) {
-                            existingRecord = record;
-                            break;
-                        }
-                    }
-                } catch (e) {
-                    // Skip records without these properties
-                }
-            }
-
-            if (existingRecord) {
-                // Update existing record properties
-                await this.setGitHubProperties(existingRecord, meta);
-                console.log('📝 Updated:', existingRecord.getName());
-                this.ui.addToaster({
-                    title: '📡 GitHub',
-                    message: `Updated: ${meta.title || meta.number}`,
-                    dismissible: true,
-                    autoDestroyTime: 2000,
-                });
-            } else {
-                // Create new record
-                const newGuid = ghCollection.createRecord(title);
-                if (!newGuid) {
-                    console.error('Failed to create GitHub issue record');
-                    return;
-                }
-
-                // Wait for sync and get record
-                await new Promise(resolve => setTimeout(resolve, 100));
-                const allRecords = await ghCollection.getAllRecords();
-                const newRecord = allRecords.find(r => r.guid === newGuid);
-
-                if (newRecord) {
-                    // Set properties
-                    await this.setGitHubProperties(newRecord, meta);
-                    // Insert body content
-                    if (body.trim()) {
-                        await this.insertMarkdown(body, newRecord);
-                    }
-
-                    // Add reference to Journal
-                    const journalRecord = await this.getTodayJournalRecord();
-                    if (journalRecord) {
-                        const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-                        const typeLabel = meta.type === 'pull_request' ? 'PR' : 'issue';
-                        await this.addGitHubRefToJournal(journalRecord, timeStr, typeLabel, newRecord.guid);
-                    }
-                }
-
-                this.ui.addToaster({
-                    title: '📡 GitHub',
-                    message: `Created: ${meta.title || meta.number}`,
-                    dismissible: true,
-                    autoDestroyTime: 2000,
-                });
-            }
-        } catch (e) {
-            console.error('GitHub sync error:', e);
-            this.ui.addToaster({
-                title: '📡 GitHub Error',
-                message: e.message,
-                dismissible: true,
-                autoDestroyTime: 3000,
-            });
-        }
-    }
-
-    async setGitHubProperties(record, meta) {
-        // Set properties if they exist on the record (Collection Plugin fields)
-        // Uses generic setPropertiesFromMeta now - property IDs match frontmatter keys
-        await this.setPropertiesFromMeta(record, meta);
-    }
-
     async handleFrontmatterItem(title, meta, body) {
-        // Generic handler for any frontmatter-based content
-        // Routes to specified collection and sets any matching properties
+        // Universal handler for frontmatter-based content
+        // Routes to collection, finds existing by external_id, adds journal entries
         const collectionName = meta.collection;
-        console.log('📦 Frontmatter item:', collectionName, title);
+        const externalId = meta.external_id;
+        const verb = meta.verb; // e.g., opened, closed, merged, updated
 
         // Find target collection
         const collections = await this.data.getAllCollections();
@@ -568,17 +443,42 @@ class Plugin extends AppPlugin {
             return;
         }
 
-        // Check for existing record by title
+        // Find existing record by external_id (if provided) or title
         const records = await targetCollection.getAllRecords();
-        let existingRecord = records.find(r => r.getName() === title);
+        let existingRecord = null;
+
+        if (externalId) {
+            for (const record of records) {
+                try {
+                    const extIdProp = record.prop('external_id');
+                    if (extIdProp && extIdProp.text() === externalId) {
+                        existingRecord = record;
+                        break;
+                    }
+                } catch (e) {
+                    // Skip records without external_id
+                }
+            }
+        }
+        if (!existingRecord) {
+            existingRecord = records.find(r => r.getName() === title);
+        }
+
+        const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const journalRecord = await this.getTodayJournalRecord();
 
         if (existingRecord) {
             // Update existing - set properties
             await this.setPropertiesFromMeta(existingRecord, meta);
-            console.log('📝 Updated:', title);
+
+            // Add to journal with verb (default: updated)
+            if (journalRecord) {
+                await this.addSyncRefToJournal(journalRecord, timeStr, verb || 'updated', existingRecord.guid);
+            }
+
             this.ui.addToaster({
-                title: '📦 Updated',
-                message: `${title} in ${collectionName}`,
+                title: `📦 ${this.capitalize(verb || 'updated')}`,
+                message: title,
                 dismissible: true,
                 autoDestroyTime: 2000,
             });
@@ -590,27 +490,34 @@ class Plugin extends AppPlugin {
                 return;
             }
 
-            // Wait for sync and get record
+            // Add to journal with verb (default: added)
+            if (journalRecord) {
+                await this.addSyncRefToJournal(journalRecord, timeStr, verb || 'added', newGuid);
+            }
+
+            // Wait for sync and get record to set properties
             await new Promise(resolve => setTimeout(resolve, 100));
             const allRecords = await targetCollection.getAllRecords();
             const newRecord = allRecords.find(r => r.guid === newGuid);
 
             if (newRecord) {
-                // Set properties from meta
                 await this.setPropertiesFromMeta(newRecord, meta);
-                // Insert body content
                 if (body.trim()) {
                     await this.insertMarkdown(body, newRecord);
                 }
             }
 
             this.ui.addToaster({
-                title: '📦 Created',
-                message: `${title} in ${collectionName}`,
+                title: `📦 ${this.capitalize(verb || 'added')}`,
+                message: title,
                 dismissible: true,
                 autoDestroyTime: 2000,
             });
         }
+    }
+
+    capitalize(str) {
+        return str.charAt(0).toUpperCase() + str.slice(1);
     }
 
     async setPropertiesFromMeta(record, meta) {
@@ -630,7 +537,6 @@ class Plugin extends AppPlugin {
                         // Could be multi-select or tags
                         prop.set(value.join(', '));
                     }
-                    console.log(`  Set ${key}:`, value);
                 }
             } catch (e) {
                 // Property doesn't exist on this collection, skip

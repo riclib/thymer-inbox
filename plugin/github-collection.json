@@ -17,6 +17,15 @@
     "show_cmdpal_items": true,
     "fields": [
         {
+            "icon": "ti-id",
+            "id": "external_id",
+            "label": "External ID",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "text"
+        },
+        {
             "icon": "ti-abc",
             "id": "title",
             "label": "Title",
