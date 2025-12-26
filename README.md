@@ -6,6 +6,7 @@ A plugin and CLI for getting data from the outside world into [Thymer](https://t
 
 - **Markdown paste** - Pipe any markdown from the terminal into your Thymer Journal
 - **GitHub sync** - Automatically sync issues and PRs from your repos into Thymer
+- **Readwise sync** - Sync your highlights from Readwise Reader into Thymer
 - **tm CLI** - Command-line interface to push content to Thymer
 
 ## How It Works
@@ -15,14 +16,14 @@ A plugin and CLI for getting data from the outside world into [Thymer](https://t
 │  OUTSIDE WORLD                                                  │
 │  • tm CLI (echo "note" | tm)                                    │
 │  • GitHub API (issues, PRs)                                     │
-│  • [Future: Readwise, MCP, ...]                                 │
+│  • Readwise Reader API (highlights)                             │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  tm serve (local Go server)                                     │
 │  • Queues incoming content                                      │
-│  • Polls GitHub every minute                                    │
+│  • Polls GitHub every minute, Readwise every hour               │
 │  • Serves SSE stream to browser                                 │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ SSE (browser connects out, server pushes in)
@@ -57,6 +58,9 @@ token=local-dev-token
 # Optional: GitHub sync
 github_token=ghp_xxxxxxxxxxxx
 github_repos=owner/repo1,owner/repo2
+
+# Optional: Readwise sync
+readwise_token=xxxxxxxxxxxx
 ```
 
 ### 3. Install the Plugins
@@ -75,13 +79,19 @@ Handles SSE connection, markdown parsing, and content routing.
 
 Status bar shows `🪄 ●` (green = connected, red = disconnected).
 
-#### Collection Plugin (optional, for GitHub sync)
+#### Collection Plugins (optional, for sync features)
 
-Defines custom fields for GitHub issues (state, type, author, etc.).
+Define custom fields for synced content.
 
+**GitHub Collection:**
 1. In Thymer, create a new **Collection Plugin**
 2. Paste `plugin/github-collection.json` into the Configuration tab
-3. Save - this creates a "GitHub" collection with proper fields
+3. Save - this creates a "GitHub" collection with issue/PR fields
+
+**Readwise Collection:**
+1. Create another **Collection Plugin**
+2. Paste `plugin/readwise-collection.json` into the Configuration tab
+3. Save - this creates a "Readwise" collection with highlight fields
 
 ### 4. Start the Server
 
@@ -115,7 +125,8 @@ Usage:
   tm lifelog Had coffee with Alex     Push lifelog entry
   tm --collection 'Tasks' < todo.md   Push to specific collection
   tm serve                            Run local queue server
-  tm resync [repo]                    Clear GitHub cache and resync
+  tm resync [repo|readwise]           Clear sync cache and resync
+  tm readwise-sync                    Trigger Readwise sync now
 
 Options:
   --collection, -c    Target collection name
@@ -185,6 +196,39 @@ tm resync owner/repo   # Clear specific repo
 # Then restart tm serve
 ```
 
+## Readwise Sync
+
+Automatically sync your Readwise Reader highlights to Thymer.
+
+### Setup
+
+1. Get your [Readwise Access Token](https://readwise.io/access_token)
+2. Add to your config:
+   ```
+   readwise_token=xxxxxxxxxxxx
+   ```
+3. Install the Collection Plugin (`plugin/readwise-collection.json`)
+4. Start `tm serve`
+
+### How It Works
+
+- Polls Readwise every 1 hour (strict API rate limits)
+- Only syncs documents that have highlights (not all saved items)
+- Each document becomes a record with:
+  - LLM-generated summary (when available)
+  - All highlights as blockquotes
+  - User notes preserved
+- First sync adds journal entry: `15:21 highlighted [[Article Title]]`
+- Subsequent updates are silent (no journal spam)
+- Stores sync state in `~/.config/tm/readwise.db` (bbolt)
+
+### Manual Sync
+
+```bash
+tm readwise-sync       # Trigger sync now (via running server)
+tm resync readwise     # Clear cache and resync from scratch
+```
+
 ## Universal Frontmatter Interface
 
 Any content with YAML frontmatter is automatically routed:
@@ -231,11 +275,13 @@ task service:logs
 thymer-inbox/
 ├── cmd/tm/
 │   ├── main.go           # CLI + local server
-│   └── github.go         # GitHub sync logic
+│   ├── github.go         # GitHub sync logic
+│   └── readwise.go       # Readwise sync logic
 ├── plugin/
 │   ├── plugin.js         # App Plugin (SSE, markdown, routing)
 │   ├── plugin.json       # App Plugin config
-│   └── github-collection.json  # Collection Plugin (GitHub fields)
+│   ├── github-collection.json    # Collection Plugin (GitHub)
+│   └── readwise-collection.json  # Collection Plugin (Readwise)
 ├── worker/               # Cloudflare Worker (needs update)
 └── CLAUDE.md             # Instructions for Claude Code
 ```
@@ -249,7 +295,6 @@ thymer-inbox/
 ## Roadmap
 
 See [GitHub Issues](https://github.com/riclib/thymer-inbox/issues) for planned features:
-- Readwise sync
 - MCP server for Claude Code integration
 - Cloudflare Worker update
 

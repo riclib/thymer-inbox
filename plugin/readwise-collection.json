@@ -1,7 +1,7 @@
 {
     "ver": 1,
     "name": "Readwise",
-    "icon": "ti-highlight",
+    "icon": "ti-books",
     "home": false,
     "page_field_ids": [
         "title",
