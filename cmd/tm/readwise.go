@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -203,15 +204,15 @@ func (s *ReadwiseSyncer) fetchAll(since time.Time) (docs []ReadwiseDocument, hig
 
 	for {
 		// Build request URL
-		url := readwiseBaseURL + "?"
+		reqUrl := readwiseBaseURL + "?"
 		if !since.IsZero() {
-			url += "updatedAfter=" + since.Format(time.RFC3339) + "&"
+			reqUrl += "updatedAfter=" + url.QueryEscape(since.Format(time.RFC3339)) + "&"
 		}
 		if pageCursor != "" {
-			url += "pageCursor=" + pageCursor
+			reqUrl += "pageCursor=" + pageCursor
 		}
 
-		req, err := http.NewRequest("GET", url, nil)
+		req, err := http.NewRequest("GET", reqUrl, nil)
 		if err != nil {
 			return nil, nil, err
 		}
