@@ -764,9 +764,13 @@ class Plugin extends AppPlugin {
                     if (newItem) {
                         // Update the parent's afterItem for siblings
                         parent.afterItem = newItem;
-                        // Set heading size using new API
-                        if (headingLevel > 1) {
-                            newItem.setHeadingSize(headingLevel);
+                        // Set heading size using new API (when available)
+                        if (headingLevel > 1 && typeof newItem.setHeadingSize === 'function') {
+                            try {
+                                newItem.setHeadingSize(headingLevel);
+                            } catch (e) {
+                                console.warn('setHeadingSize failed:', e);
+                            }
                         }
                         // Push this heading as new parent for deeper content
                         parentStack.push({ item: newItem, afterItem: null, level: headingLevel });
@@ -793,10 +797,14 @@ class Plugin extends AppPlugin {
 
                     // For code blocks, create child text items for each line
                     if (block.type === 'block' && block.codeLines) {
-                        // Set syntax highlighting language using new API
+                        // Set syntax highlighting language using new API (when available)
                         const lang = normalizeLanguage(block.mp?.language);
-                        if (lang) {
-                            newItem.setHighlightLanguage(lang);
+                        if (lang && typeof newItem.setHighlightLanguage === 'function') {
+                            try {
+                                newItem.setHighlightLanguage(lang);
+                            } catch (e) {
+                                console.warn('setHighlightLanguage failed:', e);
+                            }
                         }
 
                         let codeLastChild = null;
