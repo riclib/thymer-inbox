@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -398,15 +397,13 @@ func (s *GitHubSyncer) StartPeriodicSync(ctx context.Context, interval time.Dura
 		for {
 			select {
 			case <-ctx.Done():
-				log.Println("📡 GitHub sync stopped")
+				logger.Info("GitHub sync stopped")
 				return
 			case <-ticker.C:
 				s.doSync(onChange)
 			}
 		}
 	}()
-
-	log.Printf("📡 GitHub sync started (every %v)", interval)
 }
 
 func (s *GitHubSyncer) doSync(onChange func([]GitHubIssue)) {
@@ -415,12 +412,11 @@ func (s *GitHubSyncer) doSync(onChange func([]GitHubIssue)) {
 
 	result, err := s.Sync(ctx)
 	if err != nil {
-		log.Printf("❌ GitHub sync error: %v", err)
+		logger.Error("GitHub sync failed", "error", err)
 		return
 	}
 
-	log.Printf("📡 GitHub sync: created=%d updated=%d unchanged=%d errors=%d",
-		len(result.Created), len(result.Updated), result.Unchanged, len(result.Errors))
+	logger.Debug("GitHub sync complete", "created", len(result.Created), "updated", len(result.Updated), "unchanged", result.Unchanged, "errors", len(result.Errors))
 
 	// Notify about changes
 	if len(result.Created) > 0 || len(result.Updated) > 0 {
