@@ -136,6 +136,18 @@ The plugin automatically routes content based on its structure:
 | **Lifelog** (`tm lifelog ...`) | Adds bold timestamped entry: `**15:21** Had coffee` |
 | **Frontmatter** | Routes to specified collection, matches properties |
 
+## Markdown Support
+
+- Headings, bold, italic, inline code
+- Bullet and numbered lists
+- Task lists (`- [ ]` and `- [x]`)
+- Blockquotes
+- Fenced code blocks with language
+
+**Pending Thymer API:**
+- Headings 2-6 (currently all render as H1)
+- Code blocks with syntax highlighting (currently imported as generic blocks)
+
 ## GitHub Sync
 
 Automatically sync GitHub issues and PRs to Thymer.
