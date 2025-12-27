@@ -193,6 +193,32 @@ tm resync owner/repo   # Clear specific repo
 # Then restart tm serve
 ```
 
+### Custom Workflow Fields
+
+You can add your own fields to the GitHub collection for project tracking - **user-set values are preserved** when sync updates issues.
+
+**Example workflow fields to add:**
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| Status | Choice | Local workflow: Backlog, This Week, Doing, Done |
+| Due Date | Date | Manual planning (GitHub lacks native due dates) |
+| Area | Choice | Group by project area across repos |
+| Priority | Choice | P0, P1, P2, P3 |
+
+**To add fields:**
+
+1. Open your GitHub collection in Thymer
+2. Click the collection name → Edit Collection
+3. Add new properties (fields) as needed
+4. Create views grouped/sorted by your custom fields
+
+**How it works:**
+
+- Sync only updates fields it knows about (repo, number, state, type, url)
+- Your custom fields remain untouched across syncs
+- Build kanban boards, time-based views, or area groupings on top of GitHub data
+
 ## Readwise Sync
 
 Automatically sync your Readwise Reader highlights to Thymer.
