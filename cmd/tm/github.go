@@ -121,6 +121,29 @@ func (s *GitHubSyncer) Close() error {
 	return s.db.Close()
 }
 
+// ClearCache clears all cached issues from the database
+func (s *GitHubSyncer) ClearCache() error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("github_issues"))
+		if b == nil {
+			return nil
+		}
+
+		var keysToDelete [][]byte
+		b.ForEach(func(k, v []byte) error {
+			keysToDelete = append(keysToDelete, k)
+			return nil
+		})
+
+		for _, k := range keysToDelete {
+			if err := b.Delete(k); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // SyncResult contains sync statistics
 type SyncResult struct {
 	Created   []GitHubIssue
