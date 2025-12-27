@@ -287,6 +287,13 @@ class Plugin extends AppPlugin {
             return;
         }
 
+        // If CLI passed --collection flag, route there (non-frontmatter content)
+        if (data.collection) {
+            const syntheticMeta = { collection: data.collection };
+            await this.handleFrontmatterItem(data.title, syntheticMeta, content);
+            return;
+        }
+
         // Find today's Journal entry
         const journalRecord = await this.getTodayJournalRecord();
 
