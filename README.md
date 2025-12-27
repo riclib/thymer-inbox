@@ -6,6 +6,7 @@ A plugin and CLI for getting data from the outside world into [Thymer](https://t
 
 - **Markdown paste** - Pipe any markdown from the terminal into your Thymer Journal
 - **GitHub sync** - Automatically sync issues and PRs from your repos into Thymer
+- **Google Calendar sync** - Sync your calendar events with time ranges into Thymer
 - **Readwise sync** - Sync your highlights from Readwise Reader into Thymer
 - **tm CLI** - Command-line interface to push content to Thymer
 
@@ -16,6 +17,7 @@ A plugin and CLI for getting data from the outside world into [Thymer](https://t
 │  OUTSIDE WORLD                                                  │
 │  • tm CLI (echo "note" | tm)                                    │
 │  • GitHub API (issues, PRs)                                     │
+│  • Google Calendar API (events)                                 │
 │  • Readwise Reader API (highlights)                             │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
@@ -23,7 +25,7 @@ A plugin and CLI for getting data from the outside world into [Thymer](https://t
 ┌─────────────────────────────────────────────────────────────────┐
 │  tm serve (local Go server)                                     │
 │  • Queues incoming content                                      │
-│  • Polls GitHub every minute, Readwise every hour               │
+│  • Polls GitHub/Calendar every minute, Readwise hourly          │
 │  • Serves SSE stream to browser                                 │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ SSE (browser connects out, server pushes in)
@@ -88,6 +90,11 @@ Define custom fields for synced content.
 2. Paste `plugin/github-collection.json` into the Configuration tab
 3. Save - this creates a "GitHub" collection with issue/PR fields
 
+**Calendar Collection:**
+1. Create another **Collection Plugin**
+2. Paste `plugin/calendar-collection.json` into the Configuration tab
+3. Save - this creates a "Calendar" collection with time range fields
+
 **Readwise Collection:**
 1. Create another **Collection Plugin**
 2. Paste `plugin/readwise-collection.json` into the Configuration tab
@@ -125,8 +132,14 @@ Usage:
   tm lifelog Had coffee with Alex     Push lifelog entry
   tm --collection 'Tasks' < todo.md   Push to specific collection
   tm serve                            Run local queue server
-  tm resync [repo|readwise]           Clear sync cache and resync
+  tm resync [repo|readwise|calendar]  Clear sync cache and resync
   tm readwise-sync                    Trigger Readwise sync now
+
+  # Google Calendar
+  tm auth google                      Authenticate with Google
+  tm calendars                        List available calendars
+  tm calendars enable <id>            Enable calendar for sync
+  tm calendars disable <id>           Disable calendar
 
 Options:
   --collection, -c    Target collection name
@@ -218,6 +231,103 @@ You can add your own fields to the GitHub collection for project tracking - **us
 - Sync only updates fields it knows about (repo, number, state, type, url)
 - Your custom fields remain untouched across syncs
 - Build kanban boards, time-based views, or area groupings on top of GitHub data
+
+## Google Calendar Sync
+
+Automatically sync your Google Calendar events to Thymer with proper time ranges.
+
+### Setup
+
+Google Calendar requires OAuth authentication. You'll need to set up your own Google Cloud credentials:
+
+#### 1. Create Google Cloud Credentials
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+2. Create a new project (or select existing)
+3. Enable the **Google Calendar API**:
+   - Go to "APIs & Services" → "Library"
+   - Search for "Google Calendar API" and enable it
+4. Create OAuth credentials:
+   - Go to "APIs & Services" → "Credentials"
+   - Click "Create Credentials" → "OAuth client ID"
+   - Choose "Desktop app" as the application type
+   - Note down the Client ID and Client Secret
+
+#### 2. Configure tm
+
+Add your credentials to `~/.config/tm/config`:
+
+```
+google_client_id=YOUR_CLIENT_ID.apps.googleusercontent.com
+google_client_secret=YOUR_CLIENT_SECRET
+```
+
+#### 3. Authenticate
+
+```bash
+tm auth google
+```
+
+This opens your browser to authorize calendar access. Tokens are stored locally in `~/.config/tm/google_tokens.json`.
+
+#### 4. Enable Calendars
+
+```bash
+# List available calendars
+tm calendars
+
+# Enable calendars to sync
+tm calendars enable primary
+tm calendars enable work@company.com
+```
+
+#### 5. Install Collection Plugin
+
+1. Create a **Collection Plugin** in Thymer
+2. Paste `plugin/calendar-collection.json` into the Configuration tab
+3. Save
+
+#### 6. Start Server
+
+```bash
+tm serve
+```
+
+### How It Works
+
+- Polls Google Calendar every 1 minute
+- Syncs events from 1 week ago to 12 weeks ahead
+- Uses Thymer's `DateTime` with range support:
+  - Timed events: `Sun Dec 21 11:00 — Sun Dec 21 12:15`
+  - All-day events: `Dec 27` (single day) or `Dec 27 — Dec 29` (multi-day)
+- Uses `external_id` for deduplication (e.g., `gcal_abc123`)
+- Adds timestamped entries to Journal: `15:21 created [[Meeting Title]]`
+- Stores sync state in `~/.config/tm/calendar.db` (bbolt)
+
+### Calendar Commands
+
+```bash
+tm auth google              # Authenticate with Google
+tm auth google --force      # Re-authenticate
+tm calendars                # List all calendars
+tm calendars enable <id>    # Enable a calendar for sync
+tm calendars disable <id>   # Disable a calendar
+tm calendar-test            # Debug: show raw calendar data
+tm resync calendar          # Clear cache and resync
+```
+
+### Custom Fields
+
+Like GitHub sync, you can add custom fields to the Calendar collection:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| Prep Done | Checkbox | Track meeting preparation |
+| Energy | Choice | Rate energy: High, Medium, Low |
+| Outcome | Choice | Rate: Productive, Neutral, Waste |
+| Needs Follow-up | Checkbox | Flag items needing action |
+
+The collection template includes these fields by default.
 
 ## Readwise Sync
 
@@ -325,11 +435,14 @@ task skill:uninstall
 thymer-inbox/
 ├── cmd/tm/
 │   ├── main.go           # CLI + local server
+│   ├── auth.go           # Google OAuth flow
+│   ├── calendar.go       # Google Calendar sync
 │   ├── github.go         # GitHub sync logic
 │   └── readwise.go       # Readwise sync logic
 ├── plugin/
 │   ├── plugin.js         # App Plugin (SSE, markdown, routing)
 │   ├── plugin.json       # App Plugin config
+│   ├── calendar-collection.json  # Collection Plugin (Calendar)
 │   ├── github-collection.json    # Collection Plugin (GitHub)
 │   └── readwise-collection.json  # Collection Plugin (Readwise)
 ├── skill/
