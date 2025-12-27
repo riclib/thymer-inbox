@@ -43,13 +43,38 @@ The browser can't be a server, but it can hold a connection open. The plugin ope
 
 ## Quick Start
 
-### 1. Build the CLI
+### 1. Install Task (build tool)
+
+This project uses [Task](https://taskfile.dev) as a build tool. Install it first:
+
+```bash
+# macOS
+brew install go-task
+
+# Arch Linux
+sudo pacman -S go-task
+
+# Ubuntu/Debian (snap)
+sudo snap install task --classic
+
+# Or with Go
+go install github.com/go-task/task/v3/cmd/task@latest
+```
+
+### 2. Build the CLI
+
+```bash
+task build           # Build ./tm binary
+task install         # Build and install to ~/.local/bin/tm
+```
+
+Or manually without Task:
 
 ```bash
 cd cmd/tm && go build -o ../../tm . && cd ../..
 ```
 
-### 2. Configure
+### 3. Configure
 
 Create `~/.config/tm/config`:
 
@@ -65,7 +90,7 @@ github_repos=owner/repo1,owner/repo2
 readwise_token=xxxxxxxxxxxx
 ```
 
-### 3. Install the Plugins
+### 4. Install the Plugins
 
 There are **two plugins** to install:
 
@@ -100,7 +125,7 @@ Define custom fields for synced content.
 2. Paste `plugin/readwise-collection.json` into the Configuration tab
 3. Save - this creates a "Readwise" collection with highlight fields
 
-### 4. Start the Server
+### 5. Start the Server
 
 ```bash
 ./tm serve
@@ -113,7 +138,7 @@ Output:
 📡 GitHub sync enabled for: owner/repo1, owner/repo2
 ```
 
-### 5. Test It
+### 6. Test It
 
 ```bash
 echo "Hello from the terminal!" | tm
@@ -400,6 +425,33 @@ task service:stop
 
 # View logs
 task service:logs
+```
+
+## Available Tasks
+
+Run `task` or `task --list` to see all available tasks:
+
+```bash
+# Build & Install
+task build              # Build ./tm binary
+task install            # Install to ~/.local/bin
+
+# Server
+task serve              # Run server in foreground
+task service:install    # Install systemd service
+task service:start      # Start service
+task service:stop       # Stop service
+task service:logs       # Tail server logs
+
+# Plugin Helpers (copies to clipboard)
+task plugin:copy        # Copy plugin.js
+task plugin:copy-json   # Copy plugin.json
+task plugin:copy-github # Copy github-collection.json
+task plugin:copy-calendar # Copy calendar-collection.json
+
+# Claude Code Skill
+task skill:install      # Install capture skill
+task skill:uninstall    # Remove skill
 ```
 
 ## Claude Code Integration
