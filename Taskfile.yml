@@ -177,42 +177,6 @@ tasks:
       - echo "Test markdown copied to clipboard"
 
   # ==========================================================================
-  # Cloudflare Worker
-  # ==========================================================================
-
-  worker:dev:
-    desc: Run worker locally with wrangler
-    dir: worker
-    cmds:
-      - npx wrangler dev
-
-  worker:deploy:
-    desc: Deploy worker to Cloudflare
-    dir: worker
-    cmds:
-      - npx wrangler deploy
-
-  worker:logs:
-    desc: Tail worker logs from Cloudflare
-    dir: worker
-    cmds:
-      - npx wrangler tail
-
-  worker:kv-create:
-    desc: Create KV namespace for the worker
-    dir: worker
-    cmds:
-      - npx wrangler kv:namespace create THYMER_KV
-      - echo ""
-      - echo "Copy the 'id' value and update worker/wrangler.toml"
-
-  worker:secret:
-    desc: Set THYMER_TOKEN secret for the worker
-    dir: worker
-    cmds:
-      - npx wrangler secret put THYMER_TOKEN
-
-  # ==========================================================================
   # SDK (Thymer Plugin SDK)
   # ==========================================================================
 

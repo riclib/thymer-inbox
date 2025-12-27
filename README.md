@@ -495,7 +495,6 @@ thymer-inbox/
 │   └── readwise-collection.json  # Collection Plugin (Readwise)
 ├── skill/
 │   └── SKILL.md          # Claude Code skill for natural language capture
-├── worker/               # Cloudflare Worker (needs update)
 └── CLAUDE.md             # Instructions for Claude Code
 ```
 
