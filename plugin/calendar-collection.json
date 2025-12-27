@@ -1,0 +1,289 @@
+{
+    "ver": 1,
+    "name": "Calendar",
+    "icon": "ti-calendar",
+    "home": false,
+    "page_field_ids": [
+        "title",
+        "time_period",
+        "calendar",
+        "status"
+    ],
+    "item_name": "Event",
+    "description": "Google Calendar Events",
+    "show_sidebar_items": true,
+    "show_cmdpal_items": true,
+    "fields": [
+        {
+            "icon": "ti-id",
+            "id": "external_id",
+            "label": "External ID",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-abc",
+            "id": "title",
+            "label": "Title",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-clock",
+            "id": "time_period",
+            "label": "Time Period",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "datetime"
+        },
+        {
+            "icon": "ti-calendar",
+            "id": "calendar",
+            "label": "Calendar",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "primary",
+                    "label": "Primary",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "work",
+                    "label": "Work",
+                    "color": "4",
+                    "active": true
+                },
+                {
+                    "id": "personal",
+                    "label": "Personal",
+                    "color": "3",
+                    "active": true
+                }
+            ]
+        },
+        {
+            "icon": "ti-map-pin",
+            "id": "location",
+            "label": "Location",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-users",
+            "id": "attendees",
+            "label": "Attendees",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-video",
+            "id": "meet_link",
+            "label": "Meet Link",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "url"
+        },
+        {
+            "icon": "ti-circle",
+            "id": "status",
+            "label": "Status",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "confirmed",
+                    "label": "Confirmed",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "tentative",
+                    "label": "Tentative",
+                    "color": "3",
+                    "active": true
+                },
+                {
+                    "id": "cancelled",
+                    "label": "Cancelled",
+                    "color": "5",
+                    "active": true
+                }
+            ]
+        },
+        {
+            "icon": "ti-checkbox",
+            "id": "prep",
+            "label": "Prep Done",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "checkbox"
+        },
+        {
+            "icon": "ti-bolt",
+            "id": "energy",
+            "label": "Energy",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "high",
+                    "label": "High",
+                    "color": "5",
+                    "active": true
+                },
+                {
+                    "id": "medium",
+                    "label": "Medium",
+                    "color": "3",
+                    "active": true
+                },
+                {
+                    "id": "low",
+                    "label": "Low",
+                    "color": "2",
+                    "active": true
+                }
+            ]
+        },
+        {
+            "icon": "ti-star",
+            "id": "outcome",
+            "label": "Outcome",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "productive",
+                    "label": "Productive",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "neutral",
+                    "label": "Neutral",
+                    "color": "3",
+                    "active": true
+                },
+                {
+                    "id": "waste",
+                    "label": "Waste",
+                    "color": "5",
+                    "active": true
+                }
+            ]
+        },
+        {
+            "icon": "ti-arrow-forward",
+            "id": "followup",
+            "label": "Needs Follow-up",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "checkbox"
+        },
+        {
+            "icon": "ti-photo",
+            "id": "banner",
+            "label": "Banner",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "banner"
+        },
+        {
+            "icon": "ti-align-left",
+            "id": "icon",
+            "label": "Icon",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "text"
+        }
+    ],
+    "sidebar_record_sort_dir": "asc",
+    "sidebar_record_sort_field_id": "time_period",
+    "managed": {
+        "fields": false,
+        "views": false,
+        "sidebar": false
+    },
+    "custom": {},
+    "views": [
+        {
+            "id": "VCAL001",
+            "shown": true,
+            "icon": "",
+            "label": "Calendar",
+            "description": "",
+            "field_ids": [
+                "title",
+                "time_period",
+                "calendar"
+            ],
+            "type": "calendar",
+            "read_only": false,
+            "date_field_id": "time_period",
+            "sort_dir": "asc",
+            "sort_field_id": "time_period",
+            "opts": {}
+        },
+        {
+            "id": "VCAL002",
+            "shown": true,
+            "icon": "",
+            "label": "Today",
+            "description": "",
+            "field_ids": [
+                "title",
+                "time_period",
+                "location",
+                "prep",
+                "outcome"
+            ],
+            "type": "table",
+            "read_only": false,
+            "sort_dir": "asc",
+            "sort_field_id": "time_period",
+            "opts": {}
+        },
+        {
+            "id": "VCAL003",
+            "shown": true,
+            "icon": "",
+            "label": "By Calendar",
+            "description": "",
+            "field_ids": [
+                "title",
+                "time_period",
+                "status"
+            ],
+            "type": "board",
+            "read_only": false,
+            "group_by_field_id": "calendar",
+            "sort_dir": "asc",
+            "sort_field_id": "time_period",
+            "opts": {}
+        }
+    ]
+}

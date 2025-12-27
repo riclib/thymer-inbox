@@ -128,6 +128,13 @@ tasks:
       - echo "plugin/github-collection.json copied to clipboard"
       - echo "Create a new Collection Plugin in Thymer and paste this as the config"
 
+  plugin:copy-calendar:
+    desc: Copy calendar-collection.json to clipboard (for creating Calendar collection)
+    cmds:
+      - cat plugin/calendar-collection.json | wl-copy
+      - echo "plugin/calendar-collection.json copied to clipboard"
+      - echo "Create a new Collection Plugin in Thymer and paste this as the config"
+
   plugin:copy-all:
     desc: Copy both plugin files (js first, then json)
     cmds:

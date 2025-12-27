@@ -37,11 +37,14 @@ const (
 )
 
 type Config struct {
-	URL           string
-	Token         string
-	GitHubToken   string
-	GitHubRepos   []string
-	ReadwiseToken string
+	URL                string
+	Token              string
+	GitHubToken        string
+	GitHubRepos        []string
+	ReadwiseToken      string
+	GoogleClientID     string
+	GoogleClientSecret string
+	GoogleCalendars    []string
 }
 
 type QueueItem struct {
@@ -62,17 +65,77 @@ func main() {
 		case "serve":
 			runServer()
 			return
-		case "resync":
+		case "auth":
+			if len(args) > 1 && args[1] == "google" {
+				runGoogleAuth()
+			} else {
+				fmt.Println("Usage: tm auth google")
+			}
+			return
+		case "calendar":
+			if len(args) > 1 && args[1] == "test" {
+				runCalendarTest()
+				return
+			}
+			fmt.Println("Usage: tm calendar test")
+			return
+		case "calendars":
 			if len(args) > 1 {
 				switch args[1] {
-				case "readwise":
-					resyncReadwise()
+				case "enable":
+					if len(args) > 2 {
+						runCalendarsEnable(args[2])
+					} else {
+						fmt.Println("Usage: tm calendars enable <calendar-id>")
+					}
+				case "disable":
+					if len(args) > 2 {
+						runCalendarsDisable(args[2])
+					} else {
+						fmt.Println("Usage: tm calendars disable <calendar-id>")
+					}
 				default:
-					resyncRepo(args[1]) // GitHub repo
+					runListCalendars()
 				}
 			} else {
-				resyncRepo("")     // Resync all GitHub
-				resyncReadwise()   // Resync Readwise
+				runListCalendars()
+			}
+			return
+		case "sync":
+			// Trigger sync via HTTP endpoint (no cache clear)
+			if len(args) > 1 {
+				switch args[1] {
+				case "github":
+					triggerHTTPSync("github", false)
+				case "calendar":
+					triggerHTTPSync("calendar", false)
+				case "readwise":
+					triggerHTTPSync("readwise", false)
+				default:
+					fmt.Println("Usage: tm sync [github|calendar|readwise]")
+				}
+			} else {
+				fmt.Println("Usage: tm sync [github|calendar|readwise]")
+			}
+			return
+		case "resync":
+			// Trigger sync via HTTP endpoint WITH cache clear
+			if len(args) > 1 {
+				switch args[1] {
+				case "github":
+					triggerHTTPSync("github", true)
+				case "calendar":
+					triggerHTTPSync("calendar", true)
+				case "readwise":
+					triggerHTTPSync("readwise", true)
+				default:
+					fmt.Println("Usage: tm resync [github|calendar|readwise]")
+				}
+			} else {
+				// Resync all
+				triggerHTTPSync("github", true)
+				triggerHTTPSync("calendar", true)
+				triggerHTTPSync("readwise", true)
 			}
 			return
 		case "readwise-sync":
@@ -206,6 +269,7 @@ type Server struct {
 	token      string
 	ghSyncer   *GitHubSyncer
 	rwSyncer   *ReadwiseSyncer
+	calSyncer  *CalendarSyncer
 }
 
 func resyncRepo(repo string) {
@@ -318,6 +382,55 @@ func resyncReadwise() {
 	fmt.Println("  Restart 'tm serve' to resync")
 }
 
+func resyncCalendar() {
+	home, _ := os.UserHomeDir()
+	dbPath := filepath.Join(home, ".config", "tm", "calendar.db")
+
+	// Check if file exists
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		fmt.Println("✓ No Calendar cache to clear")
+		return
+	}
+
+	db, err := bolt.Open(dbPath, 0600, &bolt.Options{Timeout: 1 * time.Second})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	var deleted int
+	err = db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(calendarBucket))
+		if b == nil {
+			return nil
+		}
+
+		var keysToDelete [][]byte
+		b.ForEach(func(k, v []byte) error {
+			keysToDelete = append(keysToDelete, k)
+			return nil
+		})
+
+		for _, k := range keysToDelete {
+			if err := b.Delete(k); err != nil {
+				return err
+			}
+			deleted++
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✓ Cleared %d Calendar events from cache\n", deleted)
+	fmt.Println("  Restart 'tm serve' to resync")
+}
+
 func triggerReadwiseSync() {
 	config := loadConfig()
 
@@ -350,6 +463,49 @@ func triggerReadwiseSync() {
 	}
 
 	fmt.Println("✓ Readwise sync triggered")
+}
+
+func triggerHTTPSync(syncType string, resync bool) {
+	config := loadConfig()
+
+	url := config.URL
+	if url == "" {
+		url = LocalServerURL
+	}
+	token := config.Token
+	if token == "" {
+		token = "local-dev-token"
+	}
+
+	endpoint := fmt.Sprintf("%s/sync/%s?token=%s", url, syncType, token)
+	if resync {
+		endpoint += "&resync=true"
+	}
+
+	req, err := http.NewRequest("POST", endpoint, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v (is 'tm serve' running?)\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", string(body))
+		os.Exit(1)
+	}
+
+	action := "sync"
+	if resync {
+		action = "resync"
+	}
+	fmt.Printf("✓ %s %s triggered\n", strings.Title(syncType), action)
 }
 
 func runServer() {
@@ -419,9 +575,42 @@ func runServer() {
 		}
 	}
 
+	// Start Google Calendar sync if configured
+	if len(config.GoogleCalendars) > 0 {
+		tokens, err := loadGoogleTokens()
+		if err != nil {
+			logger.Warn("Calendar sync disabled", "error", "not authenticated - run 'tm auth google'")
+		} else {
+			home, _ := os.UserHomeDir()
+			dataDir := filepath.Join(home, ".config", "tm")
+
+			calTokens := &CalendarTokens{
+				AccessToken:  tokens.AccessToken,
+				RefreshToken: tokens.RefreshToken,
+				TokenType:    tokens.TokenType,
+				Expiry:       tokens.Expiry,
+			}
+
+			syncer, err := NewCalendarSyncer(calTokens, config.GoogleCalendars, dataDir)
+			if err != nil {
+				logger.Warn("Calendar sync disabled", "error", err)
+			} else {
+				srv.calSyncer = syncer
+				ctx := context.Background()
+				syncer.StartPeriodicSync(ctx, 5*time.Minute, func(events []CalendarEvent) {
+					srv.queueCalendarChanges(events)
+				})
+				logger.Info("Calendar sync enabled", "calendars", strings.Join(config.GoogleCalendars, ", "), "interval", "5m")
+			}
+		}
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.handleHealth)
 	mux.HandleFunc("/readwise-sync", srv.handleReadwiseSync)
+	mux.HandleFunc("/sync/github", srv.handleGitHubSync)
+	mux.HandleFunc("/sync/calendar", srv.handleCalendarSync)
+	mux.HandleFunc("/sync/readwise", srv.handleReadwiseSync)
 	mux.HandleFunc("/queue", srv.handleQueue)
 	mux.HandleFunc("/stream", srv.handleStream)
 	mux.HandleFunc("/pending", srv.handlePending)
@@ -449,6 +638,23 @@ func (s *Server) queueGitHubChanges(issues []GitHubIssue) {
 		}
 		s.queue[item.ID] = item
 		logger.Debug("queued GitHub issue", "repo", issue.Repo, "number", issue.Number, "state", issue.State)
+	}
+}
+
+func (s *Server) queueCalendarChanges(events []CalendarEvent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, event := range events {
+		item := QueueItem{
+			ID:        fmt.Sprintf("cal-%d", time.Now().UnixNano()),
+			Action:    "append",
+			Title:     event.Title,
+			Content:   event.ToMarkdown(),
+			CreatedAt: time.Now().Format(time.RFC3339),
+		}
+		s.queue[item.ID] = item
+		logger.Debug("queued calendar event", "title", event.Title, "start", event.Start.Format("2006-01-02 15:04"), "verb", event.Verb)
 	}
 }
 
@@ -521,6 +727,72 @@ func (s *Server) doReadwiseSync() {
 		logger.Debug("queued Readwise", "title", doc.Document.Title, "status", status, "highlights", len(doc.Highlights))
 	}
 	logger.Info("Readwise sync complete", "documents", len(docs))
+}
+
+func (s *Server) handleGitHubSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !s.checkAuth(r) {
+		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	if s.ghSyncer == nil {
+		http.Error(w, `{"error":"GitHub sync not configured"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Check for resync flag to clear cache first
+	if r.URL.Query().Get("resync") == "true" {
+		if err := s.ghSyncer.ClearCache(); err != nil {
+			logger.Error("failed to clear GitHub cache", "error", err)
+		} else {
+			logger.Info("GitHub cache cleared for resync")
+		}
+	}
+
+	go s.ghSyncer.doSync(func(issues []GitHubIssue) {
+		s.queueGitHubChanges(issues)
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "sync started"})
+}
+
+func (s *Server) handleCalendarSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !s.checkAuth(r) {
+		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	if s.calSyncer == nil {
+		http.Error(w, `{"error":"Calendar sync not configured"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Check for resync flag to clear cache first
+	if r.URL.Query().Get("resync") == "true" {
+		if err := s.calSyncer.ClearCache(); err != nil {
+			logger.Error("failed to clear calendar cache", "error", err)
+		} else {
+			logger.Info("Calendar cache cleared for resync")
+		}
+	}
+
+	go s.calSyncer.doSync(func(events []CalendarEvent) {
+		s.queueCalendarChanges(events)
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "sync started"})
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
@@ -748,6 +1020,15 @@ func loadConfig() Config {
 			if strings.HasPrefix(line, "readwise_token=") && config.ReadwiseToken == "" {
 				config.ReadwiseToken = strings.TrimPrefix(line, "readwise_token=")
 			}
+			if strings.HasPrefix(line, "google_client_id=") && config.GoogleClientID == "" {
+				config.GoogleClientID = strings.TrimPrefix(line, "google_client_id=")
+			}
+			if strings.HasPrefix(line, "google_client_secret=") && config.GoogleClientSecret == "" {
+				config.GoogleClientSecret = strings.TrimPrefix(line, "google_client_secret=")
+			}
+			if strings.HasPrefix(line, "google_calendars=") && len(config.GoogleCalendars) == 0 {
+				config.GoogleCalendars = parseRepoList(strings.TrimPrefix(line, "google_calendars="))
+			}
 		}
 	}
 
@@ -775,8 +1056,14 @@ func printUsage() {
 	fmt.Println("  tm --collection 'Tasks' < todo.md   Push to specific collection")
 	fmt.Println("  tm create --title 'New Note'        Create new record")
 	fmt.Println("  tm serve                            Run local queue server")
-	fmt.Println("  tm resync [repo|readwise]           Clear sync cache (resync on next serve)")
+	fmt.Println("  tm resync [repo|readwise|calendar]  Clear sync cache (resync on next serve)")
 	fmt.Println("  tm readwise-sync                    Trigger Readwise sync now")
+	fmt.Println()
+	fmt.Println("Google Calendar:")
+	fmt.Println("  tm auth google                      Authenticate with Google")
+	fmt.Println("  tm calendars                        List available calendars")
+	fmt.Println("  tm calendars enable <id>            Enable calendar for sync")
+	fmt.Println("  tm calendars disable <id>           Disable calendar from sync")
 	fmt.Println()
 	fmt.Println("Actions:")
 	fmt.Println("  append (default)  Append to daily page")
@@ -792,6 +1079,11 @@ func printUsage() {
 	fmt.Println("  Or create ~/.config/tm/config with:")
 	fmt.Println("    url=https://thymer.lifelog.my")
 	fmt.Println("    token=your-secret-token")
+	fmt.Println()
+	fmt.Println("  For Google Calendar:")
+	fmt.Println("    google_client_id=YOUR_ID.apps.googleusercontent.com")
+	fmt.Println("    google_client_secret=YOUR_SECRET")
+	fmt.Println("    google_calendars=primary,work@company.com")
 	fmt.Println()
 	fmt.Println("  For local development:")
 	fmt.Printf("    url=%s\n", LocalServerURL)

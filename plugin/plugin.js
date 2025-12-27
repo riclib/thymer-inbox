@@ -560,7 +560,10 @@ class Plugin extends AppPlugin {
             return;
         }
 
-        // Find existing record by external_id (if provided) or title
+        // Find existing record by external_id only
+        // - If external_id provided: search for match, update if found
+        // - If no external_id: always create new record (e.g., manual `cat foo.md | tm`)
+        // No title fallback - causes issues like recurring calendar events collapsing
         const records = await targetCollection.getAllRecords();
         let existingRecord = null;
 
@@ -568,17 +571,15 @@ class Plugin extends AppPlugin {
             for (const record of records) {
                 try {
                     const extIdProp = record.prop('external_id');
-                    if (extIdProp && extIdProp.text() === externalId) {
+                    const storedExtId = extIdProp?.text();
+                    if (extIdProp && storedExtId === externalId) {
                         existingRecord = record;
                         break;
                     }
                 } catch (e) {
-                    // Skip records without external_id
+                    // Skip records without external_id field
                 }
             }
-        }
-        if (!existingRecord) {
-            existingRecord = records.find(r => r.getName() === title);
         }
 
         const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -612,9 +613,12 @@ class Plugin extends AppPlugin {
                 return;
             }
 
-            // Only add to journal if verb is specified
-            if (journalRecord && verb) {
-                await this.addSyncRefToJournal(journalRecord, timeStr, verb, newGuid);
+            // Default verb to "captured" for manual captures (no external_id, no verb, has content)
+            const effectiveVerb = verb || (!externalId && body.trim() ? 'captured' : null);
+
+            // Add to journal if we have a verb
+            if (journalRecord && effectiveVerb) {
+                await this.addSyncRefToJournal(journalRecord, timeStr, effectiveVerb, newGuid);
             }
 
             // Wait for sync and get record to set properties
@@ -630,7 +634,7 @@ class Plugin extends AppPlugin {
             }
 
             this.ui.addToaster({
-                title: `📦 ${this.capitalize(verb || 'synced')}`,
+                title: `📦 ${this.capitalize(effectiveVerb || 'synced')}`,
                 message: title,
                 dismissible: true,
                 autoDestroyTime: 2000,
@@ -652,18 +656,110 @@ class Plugin extends AppPlugin {
 
             try {
                 const prop = record.prop(key);
-                if (prop) {
-                    if (typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') {
+                if (!prop) continue;
+
+                // Skip datetime fields here - handled separately with range support
+                if ((key === 'start' || key === 'end') && typeof value === 'number') {
+                    continue;
+                }
+
+                if (typeof value === 'boolean' || typeof value === 'number') {
+                    prop.set(value);
+                } else if (typeof value === 'string') {
+                    // Try setChoice first for choice fields (matches by label)
+                    if (typeof prop.setChoice === 'function') {
+                        const success = prop.setChoice(value);
+                        if (!success) {
+                            // Fall back to regular set for text fields
+                            prop.set(value);
+                        }
+                    } else {
                         prop.set(value);
-                    } else if (Array.isArray(value)) {
-                        // Could be multi-select or tags
-                        prop.set(value.join(', '));
                     }
+                } else if (Array.isArray(value)) {
+                    // Could be multi-select or tags
+                    prop.set(value.join(', '));
                 }
             } catch (e) {
-                // Property doesn't exist on this collection, skip
+                // Property doesn't exist on this collection, skip silently
             }
         }
+
+        // Handle datetime range (start/end) using Thymer's DateTime class
+        await this.setDateTimeRange(record, meta);
+    }
+
+    async setDateTimeRange(record, meta) {
+        const startEpoch = meta.start;
+        const endEpoch = meta.end;
+        const allDay = meta.all_day === true;
+
+        if (typeof startEpoch !== 'number') return;
+
+        // Check if DateTime class is available
+        const DateTimeClass = (typeof DateTime !== 'undefined') ? DateTime : null;
+
+        if (!DateTimeClass) {
+            console.log('[tm] DATETIME: DateTime class not yet available - skipping time range');
+            return;
+        }
+
+        try {
+            const startDate = new Date(startEpoch * 1000);
+            const startDt = new DateTimeClass(startDate);
+
+            // For all-day events, strip the time component
+            if (allDay) {
+                startDt.setTime(null);
+            }
+
+            // If we have an end time, create a range
+            if (typeof endEpoch === 'number') {
+                let endDate = new Date(endEpoch * 1000);
+
+                if (allDay) {
+                    // Google Calendar uses exclusive end dates for all-day events
+                    // Dec 27 all-day → start=Dec 27, end=Dec 28 (exclusive)
+                    // Subtract 1 day to make it inclusive
+                    endDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
+
+                    // If start == adjusted end, it's a single day - no range needed
+                    if (startDate.toDateString() === endDate.toDateString()) {
+                        console.log(`[tm] DATETIME all-day single: ${startDate.toDateString()}`);
+                        // Don't set range, just use start
+                    } else {
+                        // Multi-day all-day event
+                        const endDt = new DateTimeClass(endDate);
+                        endDt.setTime(null);
+                        startDt.setRangeTo(endDt);
+                        console.log(`[tm] DATETIME all-day range: ${startDate.toDateString()} → ${endDate.toDateString()}`);
+                    }
+                } else {
+                    // Regular timed event - create range with both times
+                    const endDt = new DateTimeClass(endDate);
+                    startDt.setRangeTo(endDt);
+                    console.log(`[tm] DATETIME range: ${startDate.toISOString()} → ${endDate.toISOString()}`);
+                }
+            } else {
+                console.log(`[tm] DATETIME single: ${startDate.toISOString()} (all_day: ${allDay})`);
+            }
+
+            // Set the range on the 'time_period' property (single field holds full range)
+            const timeProp = record.prop('time_period');
+            if (timeProp) {
+                const val = startDt.value();
+                console.log('[tm] DATETIME value:', JSON.stringify(val));
+                timeProp.set(val);
+                console.log('[tm] DATETIME set complete, prop.date()=', timeProp.date?.());
+            }
+        } catch (e) {
+            console.error('[tm] DATETIME range failed:', e);
+        }
+    }
+
+    isISODateTime(str) {
+        // Check if string matches ISO datetime format (e.g., "2025-12-27T10:00:00+02:00")
+        return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(str);
     }
 
     async getTodayJournalRecord() {
@@ -776,9 +872,11 @@ class Plugin extends AppPlugin {
                             try {
                                 newItem.setHeadingSize(headingLevel);
                             } catch (e) {
-                                console.warn('setHeadingSize failed:', e);
+                                // setHeadingSize not available, continue
                             }
                         }
+                        // Set segments and sync (setSegments persists the mp/heading size)
+                        newItem.setSegments(block.segments || []);
                         // Push this heading as new parent for deeper content
                         parentStack.push({ item: newItem, afterItem: null, level: headingLevel });
                     }
@@ -810,9 +908,11 @@ class Plugin extends AppPlugin {
                             try {
                                 newItem.setHighlightLanguage(lang);
                             } catch (e) {
-                                console.warn('setHighlightLanguage failed:', e);
+                                // setHighlightLanguage not available, continue
                             }
                         }
+                        // Call setSegments on code block to sync mp (required to persist language)
+                        newItem.setSegments([]);
 
                         let codeLastChild = null;
                         for (const line of block.codeLines) {
@@ -823,10 +923,10 @@ class Plugin extends AppPlugin {
                                 codeLastChild = childItem;
                             }
                         }
-                    } else if (block.segments && block.segments.length > 0) {
-                        // Regular items: use setSegments API
+                    } else if (!isHeading && block.segments && block.segments.length > 0) {
+                        // Regular items (not headings - they're handled above): use setSegments API
                         newItem.setSegments(block.segments);
-                    } else if (block.mp) {
+                    } else if (!isHeading && block.mp) {
                         // Item has mp but no segments - call setSegments to sync
                         newItem.setSegments([]);
                     }
