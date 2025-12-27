@@ -696,53 +696,42 @@ class Plugin extends AppPlugin {
 
         if (typeof startEpoch !== 'number') return;
 
-        // Check if DateTime class is available
-        const DateTimeClass = (typeof DateTime !== 'undefined') ? DateTime : null;
+        const startDate = new Date(startEpoch * 1000);
+        const startDt = new DateTime(startDate);
 
-        if (!DateTimeClass) {
-            return; // DateTime class not yet available
+        // For all-day events, strip the time component
+        if (allDay) {
+            startDt.setTime(null);
         }
 
-        try {
-            const startDate = new Date(startEpoch * 1000);
-            const startDt = new DateTimeClass(startDate);
+        // If we have an end time, create a range
+        if (typeof endEpoch === 'number') {
+            let endDate = new Date(endEpoch * 1000);
 
-            // For all-day events, strip the time component
             if (allDay) {
-                startDt.setTime(null);
-            }
+                // Google Calendar uses exclusive end dates for all-day events
+                // Dec 27 all-day → start=Dec 27, end=Dec 28 (exclusive)
+                // Subtract 1 day to make it inclusive
+                endDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
 
-            // If we have an end time, create a range
-            if (typeof endEpoch === 'number') {
-                let endDate = new Date(endEpoch * 1000);
-
-                if (allDay) {
-                    // Google Calendar uses exclusive end dates for all-day events
-                    // Dec 27 all-day → start=Dec 27, end=Dec 28 (exclusive)
-                    // Subtract 1 day to make it inclusive
-                    endDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
-
-                    // If start == adjusted end, it's a single day - no range needed
-                    if (startDate.toDateString() !== endDate.toDateString()) {
-                        // Multi-day all-day event
-                        const endDt = new DateTimeClass(endDate);
-                        endDt.setTime(null);
-                        startDt.setRangeTo(endDt);
-                    }
-                } else {
-                    // Regular timed event - create range with both times
-                    const endDt = new DateTimeClass(endDate);
+                // If start == adjusted end, it's a single day - no range needed
+                if (startDate.toDateString() !== endDate.toDateString()) {
+                    // Multi-day all-day event
+                    const endDt = new DateTime(endDate);
+                    endDt.setTime(null);
                     startDt.setRangeTo(endDt);
                 }
+            } else {
+                // Regular timed event - create range with both times
+                const endDt = new DateTime(endDate);
+                startDt.setRangeTo(endDt);
             }
+        }
 
-            // Set the range on the 'time_period' property (single field holds full range)
-            const timeProp = record.prop('time_period');
-            if (timeProp) {
-                timeProp.set(startDt.value());
-            }
-        } catch (e) {
-            // DateTime setting failed, skip silently
+        // Set the range on the 'time_period' property (single field holds full range)
+        const timeProp = record.prop('time_period');
+        if (timeProp) {
+            timeProp.set(startDt.value());
         }
     }
 
