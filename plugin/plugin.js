@@ -700,8 +700,7 @@ class Plugin extends AppPlugin {
         const DateTimeClass = (typeof DateTime !== 'undefined') ? DateTime : null;
 
         if (!DateTimeClass) {
-            console.log('[tm] DATETIME: DateTime class not yet available - skipping time range');
-            return;
+            return; // DateTime class not yet available
         }
 
         try {
@@ -724,36 +723,26 @@ class Plugin extends AppPlugin {
                     endDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
 
                     // If start == adjusted end, it's a single day - no range needed
-                    if (startDate.toDateString() === endDate.toDateString()) {
-                        console.log(`[tm] DATETIME all-day single: ${startDate.toDateString()}`);
-                        // Don't set range, just use start
-                    } else {
+                    if (startDate.toDateString() !== endDate.toDateString()) {
                         // Multi-day all-day event
                         const endDt = new DateTimeClass(endDate);
                         endDt.setTime(null);
                         startDt.setRangeTo(endDt);
-                        console.log(`[tm] DATETIME all-day range: ${startDate.toDateString()} → ${endDate.toDateString()}`);
                     }
                 } else {
                     // Regular timed event - create range with both times
                     const endDt = new DateTimeClass(endDate);
                     startDt.setRangeTo(endDt);
-                    console.log(`[tm] DATETIME range: ${startDate.toISOString()} → ${endDate.toISOString()}`);
                 }
-            } else {
-                console.log(`[tm] DATETIME single: ${startDate.toISOString()} (all_day: ${allDay})`);
             }
 
             // Set the range on the 'time_period' property (single field holds full range)
             const timeProp = record.prop('time_period');
             if (timeProp) {
-                const val = startDt.value();
-                console.log('[tm] DATETIME value:', JSON.stringify(val));
-                timeProp.set(val);
-                console.log('[tm] DATETIME set complete, prop.date()=', timeProp.date?.());
+                timeProp.set(startDt.value());
             }
         } catch (e) {
-            console.error('[tm] DATETIME range failed:', e);
+            // DateTime setting failed, skip silently
         }
     }
 
