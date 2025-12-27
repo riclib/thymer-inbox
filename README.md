@@ -108,22 +108,18 @@ Status bar shows `🪄 ●` (green = connected, red = disconnected).
 
 #### Collection Plugins (optional, for sync features)
 
-Define custom fields for synced content.
+Define custom fields for synced content. For each collection you want:
 
-**GitHub Collection:**
-1. In Thymer, create a new **Collection Plugin**
-2. Paste `plugin/github-collection.json` into the Configuration tab
-3. Save - this creates a "GitHub" collection with issue/PR fields
+1. Click the **+** button next to "Collections" in the sidebar
+2. In the dialog, click **"Edit as code"**
+3. Paste the respective JSON file and save
 
-**Calendar Collection:**
-1. Create another **Collection Plugin**
-2. Paste `plugin/calendar-collection.json` into the Configuration tab
-3. Save - this creates a "Calendar" collection with time range fields
+**Files to paste:**
+- `plugin/github-collection.json` → Creates "GitHub" collection for issues/PRs
+- `plugin/calendar-collection.json` → Creates "Calendar" collection for events
+- `plugin/readwise-collection.json` → Creates "Readwise" collection for highlights
 
-**Readwise Collection:**
-1. Create another **Collection Plugin**
-2. Paste `plugin/readwise-collection.json` into the Configuration tab
-3. Save - this creates a "Readwise" collection with highlight fields
+**Tip:** Use `task plugin:copy-github` or `task plugin:copy-calendar` to copy the JSON to your clipboard.
 
 ### 5. Start the Server
 
