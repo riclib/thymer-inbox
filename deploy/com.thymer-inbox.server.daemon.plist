@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.thymer-inbox.server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>HOME_DIR/.local/bin/tm</string>
+        <string>serve</string>
+    </array>
+
+    <key>UserName</key>
+    <string>USERNAME</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>HOME_DIR</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>HOME_DIR/.local/share/thymer-inbox/logs/server.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>HOME_DIR/.local/share/thymer-inbox/logs/server.error.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>HOME_DIR</string>
+</dict>
+</plist>

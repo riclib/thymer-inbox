@@ -3,6 +3,10 @@ version: '3'
 vars:
   BINARY_NAME: tm
   SERVICE_NAME: thymer-inbox
+  SERVER_PORT: "19501"
+  LOG_DIR: '{{.HOME}}/.local/share/{{.SERVICE_NAME}}/logs'
+  BINARY_PATH: '{{.HOME}}/.local/bin/{{.BINARY_NAME}}'
+  PLIST_NAME: com.thymer-inbox.server
 
 tasks:
   default:
@@ -32,7 +36,7 @@ tasks:
       - echo "Make sure ~/.local/bin is in your PATH"
 
   # ==========================================================================
-  # Local Server (systemd service)
+  # Local Server (systemd on Linux, launchd on macOS)
   # ==========================================================================
 
   serve:
@@ -41,10 +45,30 @@ tasks:
       - ./{{.BINARY_NAME}} serve
 
   service:install:
-    desc: Install systemd user service for tm server
+    desc: Install service (launchd on macOS, systemd on Linux)
+    deps: [install]
+    cmds:
+      - mkdir -p {{.LOG_DIR}}
+      - task: service:install:{{OS}}
+
+  service:install:darwin:
+    internal: true
+    cmds:
+      - |
+        sed -e "s|BINARY_PATH|{{.BINARY_PATH}}|g" \
+            -e "s|HOME_DIR|$HOME|g" \
+            -e "s|LOG_DIR|{{.LOG_DIR}}|g" \
+            deploy/{{.PLIST_NAME}}.plist > ~/Library/LaunchAgents/{{.PLIST_NAME}}.plist
+      - launchctl bootout gui/$(id -u)/{{.PLIST_NAME}} 2>/dev/null || true
+      - launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/{{.PLIST_NAME}}.plist
+      - echo "Service installed (launchd)"
+      - echo "Service will start automatically on login"
+      - echo "Logs at {{.LOG_DIR}}/server.log"
+
+  service:install:linux:
+    internal: true
     cmds:
       - mkdir -p ~/.config/systemd/user
-      - mkdir -p ~/.local/share/{{.SERVICE_NAME}}/logs
       - |
         cat > ~/.config/systemd/user/{{.SERVICE_NAME}}.service << 'EOF'
         [Unit]
@@ -64,11 +88,26 @@ tasks:
         EOF
       - systemctl --user daemon-reload
       - systemctl --user enable {{.SERVICE_NAME}}.service
-      - echo "Service installed and enabled"
+      - echo "Service installed (systemd)"
       - echo "Run 'task service:start' to start it"
 
   service:start:
     desc: Start the tm server service
+    cmds:
+      - task: service:start:{{OS}}
+
+  service:start:darwin:
+    internal: true
+    cmds:
+      - |
+        launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/{{.PLIST_NAME}}.plist 2>/dev/null || \
+        launchctl kickstart gui/$(id -u)/{{.PLIST_NAME}} 2>/dev/null || \
+        echo "Service may already be running"
+      - sleep 1
+      - lsof -i :{{.SERVER_PORT}} > /dev/null 2>&1 && echo "Service started on port {{.SERVER_PORT}}" || echo "Service may have failed to start"
+
+  service:start:linux:
+    internal: true
     cmds:
       - systemctl --user start {{.SERVICE_NAME}}.service
       - echo "Service started"
@@ -77,11 +116,33 @@ tasks:
   service:stop:
     desc: Stop the tm server service
     cmds:
+      - task: service:stop:{{OS}}
+
+  service:stop:darwin:
+    internal: true
+    cmds:
+      - launchctl bootout gui/$(id -u)/{{.PLIST_NAME}} 2>/dev/null || echo "Service already stopped"
+      - echo "Service stopped"
+
+  service:stop:linux:
+    internal: true
+    cmds:
       - systemctl --user stop {{.SERVICE_NAME}}.service
       - echo "Service stopped"
 
   service:restart:
     desc: Restart the tm server service
+    cmds:
+      - task: service:restart:{{OS}}
+
+  service:restart:darwin:
+    internal: true
+    cmds:
+      - launchctl kickstart -k gui/$(id -u)/{{.PLIST_NAME}}
+      - echo "Service restarted"
+
+  service:restart:linux:
+    internal: true
     cmds:
       - systemctl --user restart {{.SERVICE_NAME}}.service
       - echo "Service restarted"
@@ -89,21 +150,102 @@ tasks:
   service:status:
     desc: Show tm server service status
     cmds:
+      - task: service:status:{{OS}}
+
+  service:status:darwin:
+    internal: true
+    cmds:
+      - |
+        if lsof -i :{{.SERVER_PORT}} > /dev/null 2>&1; then
+          echo "Service running on port {{.SERVER_PORT}}"
+          lsof -i :{{.SERVER_PORT}} | grep LISTEN
+        else
+          echo "Service not running"
+        fi
+      - launchctl list | grep {{.PLIST_NAME}} || echo "Service not loaded"
+
+  service:status:linux:
+    internal: true
+    cmds:
       - systemctl --user status {{.SERVICE_NAME}}.service --no-pager
 
   service:logs:
     desc: Tail tm server logs
     cmds:
-      - tail -f ~/.local/share/{{.SERVICE_NAME}}/logs/server.log
+      - tail -f {{.LOG_DIR}}/server.log
 
   service:uninstall:
-    desc: Stop and remove the systemd service
+    desc: Stop and remove the service
+    cmds:
+      - task: service:uninstall:{{OS}}
+
+  service:uninstall:darwin:
+    internal: true
+    cmds:
+      - launchctl bootout gui/$(id -u)/{{.PLIST_NAME}} 2>/dev/null || true
+      - rm -f ~/Library/LaunchAgents/{{.PLIST_NAME}}.plist
+      - echo "Service uninstalled (launchd)"
+
+  service:uninstall:linux:
+    internal: true
     cmds:
       - systemctl --user stop {{.SERVICE_NAME}}.service || true
       - systemctl --user disable {{.SERVICE_NAME}}.service || true
       - rm -f ~/.config/systemd/user/{{.SERVICE_NAME}}.service
       - systemctl --user daemon-reload
-      - echo "Service removed"
+      - echo "Service uninstalled (systemd)"
+
+  # ==========================================================================
+  # System Daemon (macOS only - starts on boot, requires sudo)
+  # ==========================================================================
+
+  daemon:install:
+    desc: Install as system daemon (starts on boot, requires sudo)
+    deps: [install]
+    platforms: [darwin]
+    cmds:
+      - mkdir -p {{.LOG_DIR}}
+      - task: service:stop
+        ignore_error: true
+      - |
+        sed -e "s|HOME_DIR|$HOME|g" \
+            -e "s|USERNAME|$(whoami)|g" \
+            deploy/com.thymer-inbox.server.daemon.plist > /tmp/{{.PLIST_NAME}}.plist
+      - sudo cp /tmp/{{.PLIST_NAME}}.plist /Library/LaunchDaemons/{{.PLIST_NAME}}.plist
+      - sudo chown root:wheel /Library/LaunchDaemons/{{.PLIST_NAME}}.plist
+      - sudo launchctl bootout system/{{.PLIST_NAME}} 2>/dev/null || true
+      - sudo launchctl bootstrap system /Library/LaunchDaemons/{{.PLIST_NAME}}.plist
+      - rm /tmp/{{.PLIST_NAME}}.plist
+      - echo "Daemon installed (starts on boot)"
+      - sleep 2
+      - task: daemon:status
+
+  daemon:uninstall:
+    desc: Remove system daemon
+    platforms: [darwin]
+    cmds:
+      - sudo launchctl bootout system/{{.PLIST_NAME}} 2>/dev/null || true
+      - sudo rm -f /Library/LaunchDaemons/{{.PLIST_NAME}}.plist
+      - echo "Daemon uninstalled"
+
+  daemon:status:
+    desc: Check system daemon status
+    platforms: [darwin]
+    cmds:
+      - |
+        if lsof -i :{{.SERVER_PORT}} > /dev/null 2>&1; then
+          echo "Daemon running on port {{.SERVER_PORT}}"
+          lsof -i :{{.SERVER_PORT}} | grep LISTEN
+        else
+          echo "Daemon not running"
+        fi
+      - sudo launchctl list | grep {{.PLIST_NAME}} || echo "Daemon not loaded"
+
+  daemon:logs:
+    desc: View daemon logs
+    platforms: [darwin]
+    cmds:
+      - tail -f {{.LOG_DIR}}/server.log
 
   # ==========================================================================
   # Plugin Tasks
@@ -112,40 +254,89 @@ tasks:
   plugin:copy:
     desc: Copy plugin.js to clipboard (for pasting into Thymer)
     cmds:
-      - cat plugin/plugin.js | wl-copy
+      - task: clipboard:copy
+        vars:
+          FILE: plugin/plugin.js
       - echo "plugin/plugin.js copied to clipboard"
 
   plugin:copy-json:
     desc: Copy plugin.json to clipboard
     cmds:
-      - cat plugin/plugin.json | wl-copy
+      - task: clipboard:copy
+        vars:
+          FILE: plugin/plugin.json
       - echo "plugin/plugin.json copied to clipboard"
 
   plugin:copy-github:
     desc: Copy github-collection.json to clipboard (for creating GitHub collection)
     cmds:
-      - cat plugin/github-collection.json | wl-copy
+      - task: clipboard:copy
+        vars:
+          FILE: plugin/github-collection.json
       - echo "plugin/github-collection.json copied to clipboard"
       - echo "Create a new Collection Plugin in Thymer and paste this as the config"
 
   plugin:copy-calendar:
     desc: Copy calendar-collection.json to clipboard (for creating Calendar collection)
     cmds:
-      - cat plugin/calendar-collection.json | wl-copy
+      - task: clipboard:copy
+        vars:
+          FILE: plugin/calendar-collection.json
       - echo "plugin/calendar-collection.json copied to clipboard"
       - echo "Create a new Collection Plugin in Thymer and paste this as the config"
 
   plugin:copy-all:
     desc: Copy both plugin files (js first, then json)
     cmds:
-      - cat plugin/plugin.js | wl-copy
+      - task: clipboard:copy
+        vars:
+          FILE: plugin/plugin.js
       - echo "plugin.js copied - paste it, then press Enter to copy plugin.json"
       - read
-      - cat plugin/plugin.json | wl-copy
+      - task: clipboard:copy
+        vars:
+          FILE: plugin/plugin.json
       - echo "plugin.json copied to clipboard"
 
   plugin:test:
     desc: Copy test markdown to clipboard
+    cmds:
+      - task: plugin:test:{{OS}}
+      - echo "Test markdown copied to clipboard"
+
+  plugin:test:darwin:
+    internal: true
+    cmds:
+      - |
+        cat <<'EOF' | pbcopy
+        # Heading 1
+
+        ## Heading 2 with **bold**
+
+        Regular paragraph with **bold**, *italic*, and `code`.
+
+        - Bullet one
+        - Bullet with **formatting**
+
+        1. First item
+        2. Second item
+
+        > Blockquote text
+
+        - [ ] Unchecked task
+        - [x] Checked task
+
+        ```javascript
+        function hello() {
+            return "world";
+        }
+        ```
+
+        Final paragraph.
+        EOF
+
+  plugin:test:linux:
+    internal: true
     cmds:
       - |
         cat <<'EOF' | wl-copy
@@ -174,7 +365,24 @@ tasks:
 
         Final paragraph.
         EOF
-      - echo "Test markdown copied to clipboard"
+
+  # Clipboard helper (cross-platform)
+  clipboard:copy:
+    internal: true
+    cmds:
+      - task: clipboard:copy:{{OS}}
+        vars:
+          FILE: '{{.FILE}}'
+
+  clipboard:copy:darwin:
+    internal: true
+    cmds:
+      - cat {{.FILE}} | pbcopy
+
+  clipboard:copy:linux:
+    internal: true
+    cmds:
+      - cat {{.FILE}} | wl-copy
 
   # ==========================================================================
   # SDK (Thymer Plugin SDK)
