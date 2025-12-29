@@ -1,0 +1,123 @@
+{
+  "ver": 1,
+  "name": "Captures",
+  "icon": "ti-article",
+  "home": false,
+  "page_field_ids": ["title", "source_url", "site_name", "captured_at"],
+  "item_name": "Capture",
+  "description": "Web pages, articles, and text captured from iOS/macOS",
+  "show_sidebar_items": true,
+  "show_cmdpal_items": true,
+  "fields": [
+    {
+      "icon": "ti-id",
+      "id": "external_id",
+      "label": "External ID",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-abc",
+      "id": "title",
+      "label": "Title",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-link",
+      "id": "source_url",
+      "label": "Source URL",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "url"
+    },
+    {
+      "icon": "ti-world",
+      "id": "site_name",
+      "label": "Site",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-user",
+      "id": "author",
+      "label": "Author",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-clock-plus",
+      "id": "captured_at",
+      "label": "Captured",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "datetime"
+    },
+    {
+      "icon": "ti-photo",
+      "id": "banner",
+      "label": "Banner",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "banner"
+    },
+    {
+      "icon": "ti-align-left",
+      "id": "icon",
+      "label": "Icon",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    }
+  ],
+  "sidebar_record_sort_dir": "desc",
+  "sidebar_record_sort_field_id": "captured_at",
+  "managed": {
+    "fields": false,
+    "views": false,
+    "sidebar": false
+  },
+  "custom": {},
+  "views": [
+    {
+      "id": "VCAPTURES001",
+      "shown": true,
+      "icon": "",
+      "label": "Recent",
+      "description": "",
+      "field_ids": ["title", "site_name", "captured_at"],
+      "type": "list",
+      "read_only": false,
+      "group_by_field_id": null,
+      "sort_dir": "desc",
+      "sort_field_id": "captured_at",
+      "opts": {}
+    },
+    {
+      "id": "VCAPTURES002",
+      "shown": true,
+      "icon": "",
+      "label": "By Site",
+      "description": "",
+      "field_ids": ["title", "captured_at"],
+      "type": "board",
+      "read_only": false,
+      "group_by_field_id": "site_name",
+      "sort_dir": "desc",
+      "sort_field_id": "captured_at",
+      "opts": {}
+    }
+  ]
+}

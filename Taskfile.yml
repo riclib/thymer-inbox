@@ -285,6 +285,15 @@ tasks:
       - echo "plugin/calendar-collection.json copied to clipboard"
       - echo "Create a new Collection Plugin in Thymer and paste this as the config"
 
+  plugin:copy-captures:
+    desc: Copy captures-collection.json to clipboard (for iOS Shortcut captures)
+    cmds:
+      - task: clipboard:copy
+        vars:
+          FILE: plugin/captures-collection.json
+      - echo "plugin/captures-collection.json copied to clipboard"
+      - echo "Create a new Collection Plugin in Thymer and paste this as the config"
+
   plugin:copy-all:
     desc: Copy both plugin files (js first, then json)
     cmds:
@@ -383,6 +392,23 @@ tasks:
     internal: true
     cmds:
       - cat {{.FILE}} | wl-copy
+
+  # ==========================================================================
+  # iOS Shortcuts
+  # ==========================================================================
+
+  shortcut:install:
+    desc: Install the "Thymer Capture" iOS/macOS shortcut
+    platforms: [darwin]
+    cmds:
+      - open "shortcuts/Thymer Capture-signed.shortcut"
+      - echo "Shortcut opened - click 'Add Shortcut' in the Shortcuts app"
+      - echo "Edit the ServerURL and AuthToken at the top of the shortcut"
+
+  shortcut:guide:
+    desc: Show manual shortcut creation guide
+    cmds:
+      - cat shortcuts/README.md
 
   # ==========================================================================
   # SDK (Thymer Plugin SDK)
